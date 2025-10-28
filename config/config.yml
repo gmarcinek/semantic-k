@@ -1,16 +1,24 @@
 # Semantic Kernel LLM Configuration
 
 # Default model to use
-default_model: "gpt-4"
+default_model: "gpt-5"
 
 # LLM Models Configuration
 models:
   # OpenAI Models
-  gpt-4:
+  gpt-5:
     provider: "openai"
-    model_id: "gpt-4"
+    model_id: "gpt-5"
     api_key_env: "OPENAI_API_KEY"
     endpoint: null  # uses default OpenAI endpoint
+    max_tokens: 8192
+    temperature: 0.7
+
+  gpt-4.1:
+    provider: "openai"
+    model_id: "gpt-4.1"
+    api_key_env: "OPENAI_API_KEY"
+    endpoint: null
     max_tokens: 4096
     temperature: 0.7
 
@@ -42,6 +50,14 @@ models:
     temperature: 0.7
 
   # Anthropic Claude Models
+  sonnet-4.5:
+    provider: "anthropic"
+    model_id: "claude-sonnet-4.5-20250929"
+    api_key_env: "ANTHROPIC_API_KEY"
+    endpoint: null
+    max_tokens: 8192
+    temperature: 0.7
+
   claude-3-opus:
     provider: "anthropic"
     model_id: "claude-3-opus-20240229"
@@ -62,24 +78,18 @@ models:
 routing:
   # Rules for prompt routing based on keywords or patterns
   rules:
-    - name: "code_generation"
-      keywords: ["code", "implement", "function", "class", "programming"]
-      preferred_model: "gpt-4"
+    - name: "WEATHER"
+      keywords: ["weather", "pogoda", "temperatura", "temperature", "forecast", "prognoza", "rain", "deszcz", "snow", "śnieg", "sun", "słońce", "cloud", "chmura", "wind", "wiatr", "storm", "burza"]
+      preferred_model: "sonnet-4.5"
+      system_prompt: "You are a weather information assistant. Provide accurate and helpful weather-related information."
 
-    - name: "analysis"
-      keywords: ["analyze", "explain", "understand", "review"]
-      preferred_model: "claude-3-sonnet"
-
-    - name: "creative"
-      keywords: ["write", "story", "creative", "imagine"]
-      preferred_model: "gpt-4-turbo"
-
-    - name: "quick_tasks"
-      keywords: ["quick", "simple", "summarize"]
-      preferred_model: "gpt-3.5-turbo"
+    - name: "OTHER"
+      keywords: []  # catches everything that doesn't match WEATHER
+      preferred_model: "gpt-5"
+      system_prompt: "Przepraszam, ale nie posiadam informacji na ten temat. To nie jest moja dziedzina specjalizacji. Mogę Ci pomóc tylko z informacjami związanymi z pogodą."
 
   # Default fallback model when no rules match
-  fallback_model: "gpt-3.5-turbo"
+  fallback_model: "gpt-5"
 
 # Logging Configuration
 logging:
