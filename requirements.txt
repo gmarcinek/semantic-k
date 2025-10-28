@@ -1,12 +1,16 @@
 # Core dependencies
-semantic-kernel>=1.2.0
-pyyaml>=6.0.1
-pydantic>=2.0.0
-python-dotenv>=1.0.0
-aiohttp>=3.9.0
 fastapi>=0.104.0
 uvicorn>=0.24.0
 sse-starlette>=1.8.0
+pyyaml>=6.0.1
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+aiohttp>=3.9.0
+openai>=1.0.0
+httpx>=0.25.0
+
+# Optional: Semantic Kernel support
+semantic-kernel>=1.2.0
 
 # Development dependencies (optional)
 pytest>=7.4.0

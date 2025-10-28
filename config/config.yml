@@ -5,74 +5,12 @@ default_model: "gpt-5"
 
 # LLM Models Configuration
 models:
-  # OpenAI Models
+  # OpenAI GPT-5
   gpt-5:
     provider: "openai"
     model_id: "gpt-5"
     api_key_env: "OPENAI_API_KEY"
-    endpoint: null  # uses default OpenAI endpoint
-    max_tokens: 8192
-    temperature: 0.7
-
-  gpt-4.1:
-    provider: "openai"
-    model_id: "gpt-4.1"
-    api_key_env: "OPENAI_API_KEY"
-    endpoint: null
-    max_tokens: 4096
-    temperature: 0.7
-
-  gpt-4-turbo:
-    provider: "openai"
-    model_id: "gpt-4-turbo-preview"
-    api_key_env: "OPENAI_API_KEY"
-    endpoint: null
-    max_tokens: 4096
-    temperature: 0.7
-
-  gpt-3.5-turbo:
-    provider: "openai"
-    model_id: "gpt-3.5-turbo"
-    api_key_env: "OPENAI_API_KEY"
-    endpoint: null
-    max_tokens: 4096
-    temperature: 0.7
-
-  # Azure OpenAI Models
-  azure-gpt-4:
-    provider: "azure_openai"
-    model_id: "gpt-4"
-    deployment_name: "gpt-4-deployment"  # Your Azure deployment name
-    api_key_env: "AZURE_OPENAI_API_KEY"
-    endpoint_env: "AZURE_OPENAI_ENDPOINT"
-    api_version: "2024-02-15-preview"
-    max_tokens: 4096
-    temperature: 0.7
-
-  # Anthropic Claude Models
-  sonnet-4.5:
-    provider: "anthropic"
-    model_id: "claude-sonnet-4.5-20250929"
-    api_key_env: "ANTHROPIC_API_KEY"
-    endpoint: null
-    max_tokens: 8192
-    temperature: 0.7
-
-  claude-3-opus:
-    provider: "anthropic"
-    model_id: "claude-3-opus-20240229"
-    api_key_env: "ANTHROPIC_API_KEY"
-    endpoint: null
-    max_tokens: 4096
-    temperature: 0.7
-
-  claude-3-sonnet:
-    provider: "anthropic"
-    model_id: "claude-3-sonnet-20240229"
-    api_key_env: "ANTHROPIC_API_KEY"
-    endpoint: null
-    max_tokens: 4096
-    temperature: 0.7
+    max_completion_tokens: 50000
 
 # Routing Configuration
 routing:
@@ -80,7 +18,7 @@ routing:
   rules:
     - name: "WEATHER"
       keywords: ["weather", "pogoda", "temperatura", "temperature", "forecast", "prognoza", "rain", "deszcz", "snow", "śnieg", "sun", "słońce", "cloud", "chmura", "wind", "wiatr", "storm", "burza"]
-      preferred_model: "sonnet-4.5"
+      preferred_model: "gpt-5"
       system_prompt: "You are a weather information assistant. Provide accurate and helpful weather-related information."
 
     - name: "OTHER"

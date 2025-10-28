@@ -1,273 +1,250 @@
-# Semantic-K
+# Semantic-K Weather Chat
 
-Semantic Kernel project with intelligent LLM routing capabilities for Python.
+Aplikacja webowa z interfejsem czatu do interakcji z asystentem pogodowym, wykorzystująca GPT-5 z inteligentnym routingiem opartym na konfiguracji YAML.
 
-## Overview
+## ✨ Funkcje
 
-This project implements a Python application using Microsoft's Semantic Kernel framework with an intelligent prompt routing system. It allows you to:
+- **🌤️ Inteligentny Routing**: Automatyczna klasyfikacja promptów jako WEATHER lub OTHER
+- **⚙️ Konfiguracja YAML**: Wszystkie ustawienia w jednym pliku `config.yml`
+- **📊 Meta Dane**: Wyświetlanie szczegółowych informacji o klasyfikacji
+- **💬 Streaming Odpowiedzi**: Przyrostowe wyświetlanie odpowiedzi modelu
+- **🎨 Bootstrap 5 UI**: Nowoczesny, responsywny interfejs użytkownika
+- **💾 Sesje Czatu**: Historia rozmowy utrzymywana podczas sesji
 
-- Connect to multiple LLM providers (OpenAI, Azure OpenAI, Anthropic)
-- Automatically route prompts to the most appropriate model based on content
-- Configure models and routing rules via YAML configuration
-- Add custom routing rules at runtime
-- Use Semantic Kernel's powerful plugin system
+## 🚀 Szybki Start
 
-## Features
+### 1. Instalacja
 
-- **Multi-Provider Support**: Connect to OpenAI, Azure OpenAI, and other LLM providers
-- **Intelligent Routing**: Automatically route prompts based on keywords and content analysis
-- **Prompt Router Plugin**: First tool implementation that analyzes prompts and suggests optimal models
-- **Flexible Configuration**: YAML-based configuration for models and routing rules
-- **Easy Integration**: Simple API for chat completions and prompt execution
-- **Extensible**: Add custom routing rules and plugins at runtime
+```bash
+# Sklonuj repozytorium
+git clone <repository-url>
+cd semantic-k
 
-## Project Structure
+# Zainstaluj zależności
+pip install -r requirements.txt
+```
+
+### 2. Konfiguracja
+
+```bash
+# Utwórz plik .env z kluczem API
+cp .env.example .env
+# Edytuj .env i dodaj: OPENAI_API_KEY=sk-proj-your-key-here
+```
+
+### 3. Uruchomienie
+
+```bash
+# Linux/Mac
+./start.sh
+
+# Windows
+start.bat
+
+# Lub ręcznie
+python simple_server.py
+```
+
+### 4. Użycie
+
+Otwórz przeglądarkę: [http://localhost:8000](http://localhost:8000)
+
+## 📋 Konfiguracja (config.yml)
+
+Cała aplikacja jest konfigurowana przez plik `config.yml`:
+
+```yaml
+# Domyślny model
+default_model: "gpt-5"
+
+# Dostępne modele
+models:
+  gpt-5:
+    provider: "openai"
+    model_id: "gpt-5"
+    api_key_env: "OPENAI_API_KEY"
+    max_tokens: 50000
+    temperature: 0.7
+
+# Reguły routingu
+routing:
+  rules:
+    - name: "WEATHER"
+      keywords: ["weather", "pogoda", "temperatura", ...]
+      preferred_model: "gpt-5"
+      system_prompt: "You are a weather information assistant..."
+    
+    - name: "OTHER"
+      keywords: []
+      preferred_model: "gpt-5"
+      system_prompt: "Przepraszam, ale nie posiadam informacji..."
+  
+  fallback_model: "gpt-5"
+```
+
+### Dostosowanie
+
+#### Dodawanie słów kluczowych
+```yaml
+keywords: ["weather", "pogoda", "twoje_nowe_slowo"]
+```
+
+#### Zmiana promptów systemowych
+```yaml
+system_prompt: "Twój własny system prompt"
+```
+
+#### Zmiana parametrów modelu
+```yaml
+temperature: 0.8  # 0.0 - 1.0
+max_tokens: 100000
+```
+
+## 🏗️ Architektura
 
 ```
 semantic-k/
-├── src/
-│   └── semantic_k/
-│       ├── __init__.py
-│       ├── semantic_k_app.py       # Main application
-│       ├── plugins/
-│       │   ├── __init__.py
-│       │   └── prompt_router_plugin.py  # Router tool plugin
-│       ├── services/
-│       │   ├── __init__.py
-│       │   └── llm_service.py      # LLM service management
-│       └── utils/
-│           ├── __init__.py
-│           └── config_loader.py    # Configuration loader
-├── config/
-│   └── config.yml                  # Model and routing configuration
-├── examples/
-│   ├── basic_usage.py              # Basic usage examples
-│   └── custom_routing.py           # Custom routing examples
-├── tests/                          # Test directory
-├── .env.example                    # Environment variables template
-├── pyproject.toml                  # Project dependencies
-└── README.md                       # This file
+├── simple_server.py       # ⚙️ FastAPI server (czyta config.yml)
+├── config.yml             # 🎯 CAŁA KONFIGURACJA
+├── frontend/
+│   └── index.html         # 🎨 Bootstrap 5 UI
+├── .env                   # 🔑 Klucze API
+└── requirements.txt       # 📦 Zależności Python
 ```
 
-## Installation
+### Przepływ danych
 
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd semantic-k
-```
+1. **Użytkownik** → Wysyła prompt przez UI
+2. **simple_server.py** → Ładuje `config.yml` przy starcie
+3. **Klasyfikacja** → Używa `keywords` z config do klasyfikacji
+4. **Routing** → Wybiera `preferred_model` z config
+5. **Generowanie** → Używa `system_prompt` i parametrów z config
+6. **Streaming** → Zwraca odpowiedź do UI
 
-2. Create a virtual environment (Python 3.11+ required):
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+## 🔌 API Endpoints
 
-3. Install dependencies:
-```bash
-pip install -e .
-```
+| Endpoint | Metoda | Opis |
+|----------|--------|------|
+| `/` | GET | Zwraca frontend HTML |
+| `/api/chat` | POST | Chat ze streamingiem (SSE) |
+| `/api/reset` | POST | Reset sesji czatu |
+| `/health` | GET | Health check + info o config |
+| `/api/config` | GET | Aktualna konfiguracja (bez kluczy) |
 
-4. Set up environment variables:
-```bash
-cp .env.example .env
-# Edit .env and add your API keys
-```
-
-## Configuration
-
-### Environment Variables
-
-Create a `.env` file with your API keys:
-
-```env
-# OpenAI Configuration
-OPENAI_API_KEY=your_openai_api_key_here
-
-# Azure OpenAI Configuration
-AZURE_OPENAI_API_KEY=your_azure_openai_api_key_here
-AZURE_OPENAI_ENDPOINT=https://your-resource-name.openai.azure.com/
-
-# Anthropic Configuration
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-```
-
-### Model Configuration
-
-Edit `config/config.yml` to configure available models and routing rules:
-
-```yaml
-default_model: "gpt-4"
-
-models:
-  gpt-4:
-    provider: "openai"
-    model_id: "gpt-4"
-    api_key_env: "OPENAI_API_KEY"
-    max_tokens: 4096
-    temperature: 0.7
-  # ... more models
-
-routing:
-  rules:
-    - name: "code_generation"
-      keywords: ["code", "implement", "function", "class"]
-      preferred_model: "gpt-4"
-    # ... more rules
-```
-
-## Usage
-
-### Basic Usage
-
-```python
-import asyncio
-from semantic_k import SemanticKernelApp
-
-async def main():
-    # Initialize the app
-    app = SemanticKernelApp()
-    app.initialize()
-
-    # Auto-route a prompt
-    response = await app.route_and_execute(
-        "Write a Python function to sort a list",
-        auto_route=True
-    )
-    print(response)
-
-    # Use a specific model
-    response = await app.chat_completion(
-        "What is the capital of France?",
-        model_name="gpt-3.5-turbo"
-    )
-    print(response)
-
-asyncio.run(main())
-```
-
-### Routing Information
-
-```python
-# Get routing analysis without executing
-routing_info = app.get_routing_info(
-    "Analyze the performance of this algorithm"
-)
-print(routing_info)
-```
-
-### Custom Routing Rules
-
-```python
-# Add a custom routing rule
-app.router_plugin.add_custom_rule(
-    rule_name="data_science",
-    keywords=["data", "statistics", "machine learning"],
-    preferred_model="gpt-4-turbo"
-)
-
-# List all rules
-print(app.list_routing_rules())
-```
-
-## Prompt Router Plugin
-
-The Prompt Router is the first tool implemented in this project. It provides several kernel functions:
-
-- `analyze_prompt`: Analyzes a prompt and returns the recommended model
-- `get_routing_info`: Returns detailed routing analysis
-- `suggest_model`: Suggests a model based on task type
-- `list_rules`: Lists all configured routing rules
-
-### Plugin Functions
-
-```python
-from semantic_k import PromptRouterPlugin
-
-# Use the router directly
-router = app.router_plugin
-
-# Analyze a prompt
-model = router.analyze_prompt("Write a function to parse JSON")
-print(f"Recommended model: {model}")
-
-# Get detailed info
-info = router.get_routing_info("Analyze this code for bugs")
-print(info)
-
-# Suggest by task type
-model = router.suggest_model("code_generation")
-print(f"Best model for code generation: {model}")
-```
-
-## Examples
-
-Run the provided examples:
+### Przykład użycia API
 
 ```bash
-# Basic usage example
-python examples/basic_usage.py
+# Wysłanie wiadomości
+curl -X POST http://localhost:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Jaka jest pogoda?"}'
 
-# Custom routing example
-python examples/custom_routing.py
+# Sprawdzenie konfiguracji
+curl http://localhost:8000/api/config
+
+# Health check
+curl http://localhost:8000/health
 ```
 
-## Development
+## 📊 Meta Dane
 
-### Running Tests
+Każdy prompt generuje następujące meta dane:
+
+```json
+{
+  "topic": "WEATHER",
+  "topic_relevance": 0.75,
+  "is_dangerous": 0.0,
+  "is_continuation": 0.8,
+  "topic_change": 0.1,
+  "summary": "Prompt classified as WEATHER with 2 matching keyword(s)."
+}
+```
+
+## 🛠️ Rozwój
+
+### Uruchomienie w trybie deweloperskim
 
 ```bash
-pytest
+# Z hot-reload
+uvicorn simple_server:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Code Formatting
+### Testowanie
 
 ```bash
-black src/ tests/
-ruff check src/ tests/
+# Zainstaluj dev dependencies
+pip install -r requirements.txt
+
+# Uruchom testy
+pytest tests/
 ```
 
-### Type Checking
+### Formatowanie kodu
 
 ```bash
-mypy src/
+black simple_server.py
+ruff check simple_server.py
 ```
 
-## Requirements
+## 🔧 Troubleshooting
 
-- Python 3.11+
-- semantic-kernel >= 1.2.0
-- pyyaml >= 6.0.1
-- pydantic >= 2.0.0
-- python-dotenv >= 1.0.0
+### Błąd: "OPENAI_API_KEY not set"
+**Rozwiązanie**: Utwórz plik `.env` z kluczem API
 
-## Architecture
+### Błąd: "config.yml not found"
+**Rozwiązanie**: Upewnij się, że `config.yml` jest w głównym katalogu
 
-### Components
+### Błąd: Port 8000 zajęty
+**Rozwiązanie**: Zmień port w `simple_server.py` (ostatnia linia)
 
-1. **SemanticKernelApp**: Main application class that orchestrates the system
-2. **LLMService**: Manages connections to different LLM providers
-3. **PromptRouterPlugin**: Semantic Kernel plugin for intelligent routing
-4. **ConfigLoader**: Loads and validates YAML configuration
+### Błąd: Model nie działa
+**Rozwiązanie**: Sprawdź czy masz dostęp do GPT-5 w swoim kluczu API
 
-### Flow
+## 📝 Przykładowe Prompty
 
-1. User submits a prompt
-2. Router plugin analyzes the prompt content
-3. Best model is selected based on routing rules
-4. Kernel switches to the selected model (if needed)
-5. Prompt is executed on the chosen model
-6. Response is returned to the user
+### WEATHER (specjalny system prompt)
+- "Jaka jest pogoda w Warszawie?"
+- "Will it rain tomorrow?"
+- "Temperatura w Krakowie?"
 
-## Contributing
+### OTHER (informacja o braku specjalizacji)
+- "Co to jest Python?"
+- "Napisz funkcję sortującą"
+- "Tell me a joke"
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+## 🌟 Zalety tego rozwiązania
 
-## License
+✅ **Centralna konfiguracja** - wszystko w `config.yml`  
+✅ **Łatwa modyfikacja** - zmień keywords bez kodu  
+✅ **Bezpieczne** - klucze API w `.env`, nie w kodzie  
+✅ **Skalowalne** - łatwo dodać nowe modele  
+✅ **Przejrzyste** - jasny przepływ danych  
 
-[Add your license here]
+## 📖 Dokumentacja
 
-## Acknowledgments
+- [START_HERE.md](START_HERE.md) - Szybki start dla nowych użytkowników
+- [config.yml](config.yml) - Komentarze w pliku konfiguracji
 
-- Built with [Microsoft Semantic Kernel](https://github.com/microsoft/semantic-kernel)
-- Supports OpenAI, Azure OpenAI, and Anthropic models
+## 🤝 Wkład
+
+Pull requesty są mile widziane! Przed wysłaniem PR:
+
+1. Sprawdź formatowanie: `black .`
+2. Uruchom linting: `ruff check .`
+3. Przetestuj zmiany lokalnie
+
+## 📧 Wsparcie
+
+W razie problemów:
+1. Sprawdź [Troubleshooting](#-troubleshooting)
+2. Przejrzyj logi serwera
+3. Sprawdź [START_HERE.md](START_HERE.md)
+
+## 📜 Licencja
+
+[Dodaj swoją licencję]
+
+---
+
+**Stworzone z ❤️ używając FastAPI, OpenAI GPT-5 i Bootstrap 5**

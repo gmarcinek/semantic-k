@@ -5,10 +5,10 @@
 ### 1️⃣ Zainstaluj zależności
 
 ```bash
-pip install fastapi uvicorn sse-starlette pyyaml python-dotenv pydantic aiohttp openai anthropic httpx jinja2
+pip install fastapi uvicorn sse-starlette pyyaml python-dotenv pydantic aiohttp openai httpx
 ```
 
-### 2️⃣ Utwórz plik `.env` z kluczami API
+### 2️⃣ Utwórz plik `.env` z kluczem OpenAI API
 
 Skopiuj plik `.env.example` do `.env`:
 
@@ -17,19 +17,14 @@ copy .env.example .env    # Windows
 cp .env.example .env      # Linux/Mac
 ```
 
-Następnie edytuj `.env` i dodaj swoje klucze API:
+Następnie edytuj `.env` i dodaj swój klucz OpenAI API:
 
 ```env
-# OpenAI Configuration (dla GPT-4/GPT-5)
+# OpenAI Configuration (dla GPT-5)
 OPENAI_API_KEY=sk-proj-your-key-here
-
-# Anthropic Configuration (dla Claude Sonnet)
-ANTHROPIC_API_KEY=sk-ant-your-key-here
 ```
 
-**⚠️ WAŻNE**: Musisz mieć **przynajmniej jeden** z tych kluczy API:
-- `OPENAI_API_KEY` - do obsługi promptów OTHER (domyślnie GPT-4)
-- `ANTHROPIC_API_KEY` - do obsługi promptów WEATHER (Claude Sonnet)
+**⚠️ WAŻNE**: Musisz mieć klucz API OpenAI z dostępem do GPT-5.
 
 ### 3️⃣ Uruchom serwer
 
@@ -45,8 +40,8 @@ Przejdź do: **http://localhost:8000**
 
 ## 🎯 Co możesz robić
 
-- **Pytaj o pogodę** - aplikacja użyje Claude Sonnet (jeśli masz klucz Anthropic)
-- **Pytaj o inne rzeczy** - aplikacja odpowie, że to nie jest jej specjalizacja (GPT-4)
+- **Pytaj o pogodę** - aplikacja użyje GPT-5 z promptem specjalistycznym dla pogody
+- **Pytaj o inne rzeczy** - aplikacja odpowie, że to nie jest jej specjalizacja (GPT-5)
 - **Przeglądaj meta dane** - na dole strony zobaczysz klasyfikację każdego prompta
 - **Resetuj rozmowę** - kliknij przycisk RESET
 
@@ -65,6 +60,61 @@ Każdy prompt jest klasyfikowany i wyświetlane są następujące informacje:
 
 ---
 
+## ⚙️ Konfiguracja
+
+Wszystkie ustawienia są w pliku `config.yml`:
+
+```yaml
+# Domyślny model
+default_model: "gpt-5"
+
+# Konfiguracja modeli
+models:
+  gpt-5:
+    provider: "openai"
+    model_id: "gpt-5"
+    api_key_env: "OPENAI_API_KEY"
+    max_tokens: 50000
+    temperature: 0.7
+
+# Reguły routingu
+routing:
+  rules:
+    - name: "WEATHER"
+      keywords: ["weather", "pogoda", ...]
+      preferred_model: "gpt-5"
+      system_prompt: "You are a weather information assistant..."
+    
+    - name: "OTHER"
+      keywords: []
+      preferred_model: "gpt-5"
+      system_prompt: "Przepraszam, ale nie posiadam informacji..."
+```
+
+### Dodawanie nowych słów kluczowych
+
+Edytuj `config.yml` i dodaj nowe słowa do sekcji `keywords`:
+
+```yaml
+routing:
+  rules:
+    - name: "WEATHER"
+      keywords: ["weather", "pogoda", "twoje_nowe_slowo"]
+```
+
+### Zmiana promptów systemowych
+
+Edytuj `config.yml` w sekcji `system_prompt`:
+
+```yaml
+routing:
+  rules:
+    - name: "WEATHER"
+      system_prompt: "Twój własny prompt systemowy"
+```
+
+---
+
 ## 🛠️ Troubleshooting
 
 ### Problem: "OPENAI_API_KEY not set in environment variables"
@@ -74,23 +124,21 @@ Każdy prompt jest klasyfikowany i wyświetlane są następujące informacje:
 OPENAI_API_KEY=sk-proj-your-key-here
 ```
 
-### Problem: "ANTHROPIC_API_KEY not set in environment variables"
+### Problem: "config.yml not found"
 
-**Rozwiązanie**: Dodaj klucz Anthropic do pliku `.env`:
-```env
-ANTHROPIC_API_KEY=sk-ant-your-key-here
-```
+**Rozwiązanie**: Upewnij się, że plik `config.yml` znajduje się w tym samym katalogu co `simple_server.py` lub w podkatalogu `config/`
 
 ### Problem: Serwer nie startuje
 
 **Rozwiązanie**: Sprawdź czy:
-1. Zainstalowałeś wszystkie zależności: `pip install fastapi uvicorn sse-starlette ...`
-2. Masz plik `.env` z kluczami API
-3. Port 8000 jest wolny
+1. Zainstalowałeś wszystkie zależności: `pip install fastapi uvicorn sse-starlette pyyaml python-dotenv pydantic openai`
+2. Masz plik `.env` z kluczem API OpenAI
+3. Masz plik `config.yml` w odpowiednim miejscu
+4. Port 8000 jest wolny
 
 ### Problem: Port 8000 jest zajęty
 
-**Rozwiązanie**: Edytuj `simple_server.py` i zmień port:
+**Rozwiązanie**: Edytuj `simple_server.py` i zmień port (ostatnia linia):
 ```python
 if __name__ == "__main__":
     import uvicorn
@@ -101,7 +149,7 @@ if __name__ == "__main__":
 
 ## 📝 Przykładowe prompty
 
-### Prompty WEATHER (będą obsługiwane przez Claude Sonnet)
+### Prompty WEATHER (będą obsługiwane ze specjalnym promptem)
 - "Jaka jest pogoda w Warszawie?"
 - "What's the weather like today?"
 - "Czy będzie padać deszcz?"
@@ -130,10 +178,10 @@ if __name__ == "__main__":
 
 - **FastAPI**: Backend API
 - **Uvicorn**: ASGI server
-- **OpenAI SDK**: Integracja z GPT
-- **Anthropic SDK**: Integracja z Claude
+- **OpenAI SDK**: Integracja z GPT-5
 - **Bootstrap 5**: Frontend UI
 - **Server-Sent Events**: Streaming odpowiedzi
+- **PyYAML**: Konfiguracja z pliku YAML
 
 ---
 
@@ -142,13 +190,13 @@ if __name__ == "__main__":
 ### Struktura projektu
 ```
 semantic-k/
-├── simple_server.py           # 🎯 GŁÓWNY SERWER (TEN UŻYWAMY!)
+├── simple_server.py           # 🎯 GŁÓWNY SERWER (używa config.yml)
+├── config.yml                 # ⚙️ CAŁA KONFIGURACJA TUTAJ
 ├── frontend/
 │   └── index.html             # UI aplikacji
 ├── .env                       # Klucze API (utwórz ten plik!)
 ├── .env.example               # Przykładowy plik .env
-├── START_HERE.md              # Ta dokumentacja
-└── README_CHAT.md             # Szczegółowa dokumentacja
+└── START_HERE.md              # Ta dokumentacja
 ```
 
 ### API Endpoints
@@ -156,18 +204,36 @@ semantic-k/
 - `GET /` - Zwraca frontend HTML
 - `POST /api/chat` - Chat endpoint ze streamingiem (SSE)
 - `POST /api/reset` - Reset sesji czatu
-- `GET /health` - Health check
+- `GET /health` - Health check + info o konfiguracji
+- `GET /api/config` - Zwraca aktualną konfigurację (bez kluczy API)
 
-### Modyfikacja modeli
+### Jak działa system konfiguracji
 
-Edytuj `simple_server.py`:
+1. **Startup**: `simple_server.py` ładuje `config.yml` przy starcie
+2. **Klasyfikacja**: Używa słów kluczowych z `config.yml` do klasyfikacji
+3. **Routing**: Wybiera model z `config.yml` na podstawie klasyfikacji
+4. **Generowanie**: Używa parametrów modelu z `config.yml` (temperature, max_tokens)
+5. **Prompt systemowy**: Wstawia system prompt z `config.yml`
 
-```python
-# Dla WEATHER - linia 196
-model="claude-3-5-sonnet-20241022"  # Zmień model
+### Testowanie konfiguracji
 
-# Dla OTHER - linia 168
-model="gpt-4"  # Zmień model
+```bash
+# Sprawdź czy config jest poprawny
+python simple_server.py
+
+# W logach zobaczysz:
+# ==================================================
+# Starting Weather Chat Application
+# ==================================================
+# Default model: gpt-5
+# Available models: ['gpt-5']
+# Routing rules: ['WEATHER', 'OTHER']
+# ==================================================
+```
+
+Możesz też sprawdzić endpoint:
+```bash
+curl http://localhost:8000/api/config
 ```
 
 ---
@@ -175,11 +241,23 @@ model="gpt-4"  # Zmień model
 ## 📞 Wsparcie
 
 Jeśli masz problemy:
-1. Sprawdź czy masz plik `.env` z kluczami API
-2. Sprawdź czy wszystkie pakiety są zainstalowane
-3. Sprawdź logi serwera w terminalu
-4. Sprawdź czy port 8000 jest wolny
+1. Sprawdź czy masz plik `.env` z kluczem OpenAI API
+2. Sprawdź czy plik `config.yml` istnieje i jest poprawny
+3. Sprawdź czy wszystkie pakiety są zainstalowane
+4. Sprawdź logi serwera w terminalu
+5. Sprawdź czy port 8000 jest wolny
 
 ---
 
 **Powodzenia! 🚀**
+
+## 🔄 Migracja z poprzedniej wersji
+
+Jeśli używałeś poprzedniej wersji z Anthropic:
+
+1. **Usuń** `ANTHROPIC_API_KEY` z pliku `.env`
+2. **Zostaw** tylko `OPENAI_API_KEY` w `.env`
+3. **Nadpisz** `config.yml` nową wersją (tylko GPT-5)
+4. **Uruchom** ponownie: `python simple_server.py`
+
+Teraz wszystko działa tylko z OpenAI i config.yml! 🎉

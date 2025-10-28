@@ -1,13 +1,14 @@
-"""Simplified FastAPI server without Semantic Kernel dependencies."""
+"""Simplified FastAPI server using only config.yml for all settings."""
 
 import asyncio
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Dict, List, Optional
 from uuid import uuid4
 
-from anthropic import AsyncAnthropic
+import yaml
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +22,26 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# Load configuration from config.yml
+def load_config() -> Dict:
+    """Load configuration from config.yml."""
+    config_path = Path("config.yml")
+    if not config_path.exists():
+        # Try alternative path
+        config_path = Path("config/config.yml")
+    
+    if not config_path.exists():
+        raise FileNotFoundError("config.yml not found in current directory or config/ directory")
+    
+    with open(config_path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
+
+
+# Load config at startup
+CONFIG = load_config()
+logger.info(f"Configuration loaded. Default model: {CONFIG['default_model']}")
 
 
 # Request/Response models
@@ -48,45 +69,64 @@ app.add_middleware(
 
 # Initialize API clients (lazy initialization)
 openai_client = None
-anthropic_client = None
 
 
 def get_openai_client():
-    """Get or create OpenAI client."""
+    """Get or create OpenAI client using config."""
     global openai_client
     if openai_client is None:
-        api_key = os.getenv("OPENAI_API_KEY")
+        # Get API key from config
+        model_config = CONFIG['models'][CONFIG['default_model']]
+        api_key_env = model_config['api_key_env']
+        api_key = os.getenv(api_key_env)
+        
         if not api_key:
-            raise ValueError("OPENAI_API_KEY not set in environment variables")
+            raise ValueError(f"{api_key_env} not set in environment variables")
+        
         openai_client = AsyncOpenAI(api_key=api_key)
+        logger.info(f"OpenAI client initialized using {api_key_env}")
+    
     return openai_client
 
 
-def get_anthropic_client():
-    """Get or create Anthropic client."""
-    global anthropic_client
-    if anthropic_client is None:
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY not set in environment variables")
-        anthropic_client = AsyncAnthropic(api_key=api_key)
-    return anthropic_client
+def get_weather_keywords() -> List[str]:
+    """Get weather keywords from config."""
+    for rule in CONFIG['routing']['rules']:
+        if rule['name'] == 'WEATHER':
+            return [kw.lower() for kw in rule['keywords']]
+    return []
 
 
-# Weather keywords for classification
-WEATHER_KEYWORDS = [
-    "weather", "pogoda", "temperatura", "temperature", "forecast", "prognoza",
-    "rain", "deszcz", "snow", "śnieg", "sun", "słońce", "cloud", "chmura",
-    "wind", "wiatr", "storm", "burza"
-]
+def get_system_prompt(topic: str) -> str:
+    """Get system prompt for a topic from config."""
+    for rule in CONFIG['routing']['rules']:
+        if rule['name'] == topic:
+            return rule.get('system_prompt', '')
+    return ''
+
+
+def get_model_config(topic: str) -> Dict:
+    """Get model configuration for a topic from config."""
+    # Get preferred model name from routing rules
+    preferred_model = CONFIG['default_model']
+    for rule in CONFIG['routing']['rules']:
+        if rule['name'] == topic:
+            preferred_model = rule.get('preferred_model', CONFIG['default_model'])
+            break
+    
+    # Get model config
+    return CONFIG['models'][preferred_model]
 
 
 def classify_prompt(prompt: str, chat_history: List[Dict] = None) -> Dict:
-    """Classify a prompt and generate metadata."""
+    """Classify a prompt and generate metadata using config."""
     prompt_lower = prompt.lower()
+    
+    # Get weather keywords from config
+    weather_keywords = get_weather_keywords()
 
     # Determine topic based on keywords
-    weather_match_count = sum(1 for keyword in WEATHER_KEYWORDS if keyword in prompt_lower)
+    weather_match_count = sum(1 for keyword in weather_keywords if keyword in prompt_lower)
     is_weather = weather_match_count > 0
 
     topic = "WEATHER" if is_weather else "OTHER"
@@ -146,8 +186,8 @@ def classify_prompt(prompt: str, chat_history: List[Dict] = None) -> Dict:
     }
 
 
-async def generate_openai_response(prompt: str, chat_history: List[Dict], system_prompt: str) -> str:
-    """Generate response using OpenAI GPT-5."""
+async def generate_response(prompt: str, chat_history: List[Dict], system_prompt: str, model_config: Dict) -> str:
+    """Generate response using configured model."""
     messages = []
 
     if system_prompt:
@@ -165,51 +205,39 @@ async def generate_openai_response(prompt: str, chat_history: List[Dict], system
 
     try:
         client = get_openai_client()
-        response = await client.chat.completions.create(
-            model="gpt-4",  # Fallback to GPT-4 if GPT-5 not available
-            messages=messages,
-            temperature=0.7,
-            max_tokens=2000
-        )
+        
+        # Build API parameters
+        api_params = {
+            "model": model_config['model_id'],
+            "messages": messages,
+        }
+        
+        # Add optional parameters if present in config
+        if 'max_completion_tokens' in model_config:
+            api_params['max_completion_tokens'] = model_config['max_completion_tokens']
+        
+        # Only add temperature if model supports it (GPT-5 doesn't)
+        if 'temperature' in model_config and model_config.get('model_id') != 'gpt-5':
+            api_params['temperature'] = model_config['temperature']
+        
+        response = await client.chat.completions.create(**api_params)
         return response.choices[0].message.content
     except Exception as e:
         logger.error(f"OpenAI error: {e}")
         return f"Error generating response: {str(e)}"
 
 
-async def generate_anthropic_response(prompt: str, chat_history: List[Dict], system_prompt: str) -> str:
-    """Generate response using Anthropic Claude Sonnet 4.5."""
-    messages = []
-
-    # Add chat history (last 5 messages)
-    for msg in chat_history[-5:]:
-        if msg.get('role') == 'user':
-            messages.append({"role": "user", "content": msg['content']})
-        elif msg.get('role') == 'assistant':
-            messages.append({"role": "assistant", "content": msg['content']})
-
-    # Add current prompt
-    messages.append({"role": "user", "content": prompt})
-
-    try:
-        client = get_anthropic_client()
-        response = await client.messages.create(
-            model="claude-3-5-sonnet-20240620",  # Claude 3.5 Sonnet (stable version)
-            system=system_prompt if system_prompt else "You are a helpful assistant.",
-            messages=messages,
-            temperature=0.7,
-            max_tokens=2000
-        )
-        return response.content[0].text
-    except Exception as e:
-        logger.error(f"Anthropic error: {e}")
-        return f"Error generating response: {str(e)}"
-
-
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     """Serve the main HTML page."""
-    with open("frontend/index.html", "r", encoding="utf-8") as f:
+    html_path = Path("frontend/index.html")
+    if not html_path.exists():
+        html_path = Path("frontend") / "index.html"
+    
+    if not html_path.exists():
+        return HTMLResponse(content="<h1>Error: frontend/index.html not found</h1>", status_code=404)
+    
+    with open(html_path, "r", encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
@@ -225,16 +253,13 @@ async def chat(request: ChatRequest):
 
     chat_history = chat_sessions[session_id]
 
-    # Classify the prompt
+    # Classify the prompt using config
     metadata = classify_prompt(prompt, chat_history)
 
-    # Get system prompt based on topic
-    if metadata["topic"] == "WEATHER":
-        system_prompt = "You are a weather information assistant. Provide accurate and helpful weather-related information."
-        model_name = "sonnet-4.5"
-    else:
-        system_prompt = "Przepraszam, ale nie posiadam informacji na ten temat. To nie jest moja dziedzina specjalizacji. Mogę Ci pomóc tylko z informacjami związanymi z pogodą."
-        model_name = "gpt-5"
+    # Get system prompt and model config from config.yml
+    system_prompt = get_system_prompt(metadata["topic"])
+    model_config = get_model_config(metadata["topic"])
+    model_name = model_config['model_id']
 
     logger.info(f"Processing prompt for session {session_id}: topic={metadata['topic']}, model={model_name}")
 
@@ -244,11 +269,8 @@ async def chat(request: ChatRequest):
             # First, send metadata
             yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
 
-            # Generate response
-            if metadata["topic"] == "WEATHER":
-                response_text = await generate_anthropic_response(prompt, chat_history, system_prompt)
-            else:
-                response_text = await generate_openai_response(prompt, chat_history, system_prompt)
+            # Generate response using configured model
+            response_text = await generate_response(prompt, chat_history, system_prompt, model_config)
 
             # Simulate streaming by sending chunks
             chunk_size = 10
@@ -281,8 +303,10 @@ async def chat(request: ChatRequest):
 
 
 @app.post("/api/reset")
-async def reset_session(session_id: Optional[str] = None):
+async def reset_session(request: Optional[Dict] = None):
     """Reset chat session."""
+    session_id = request.get('session_id') if request else None
+    
     if session_id and session_id in chat_sessions:
         del chat_sessions[session_id]
 
@@ -295,9 +319,50 @@ async def reset_session(session_id: Optional[str] = None):
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "config_loaded": True,
+        "default_model": CONFIG['default_model'],
+        "available_models": list(CONFIG['models'].keys())
+    }
+
+
+@app.get("/api/config")
+async def get_config():
+    """Get current configuration (without sensitive data)."""
+    safe_config = {
+        "default_model": CONFIG['default_model'],
+        "models": {
+            name: {
+                "provider": cfg['provider'],
+                "model_id": cfg['model_id'],
+                "max_tokens": cfg.get('max_tokens', 0),
+                "temperature": cfg.get('temperature', 0.7)
+            }
+            for name, cfg in CONFIG['models'].items()
+        },
+        "routing_rules": [
+            {
+                "name": rule['name'],
+                "keywords_count": len(rule['keywords']),
+                "preferred_model": rule['preferred_model']
+            }
+            for rule in CONFIG['routing']['rules']
+        ]
+    }
+    return safe_config
 
 
 if __name__ == "__main__":
     import uvicorn
+    
+    # Check if config is loaded
+    logger.info("=" * 50)
+    logger.info("Starting Weather Chat Application")
+    logger.info("=" * 50)
+    logger.info(f"Default model: {CONFIG['default_model']}")
+    logger.info(f"Available models: {list(CONFIG['models'].keys())}")
+    logger.info(f"Routing rules: {[rule['name'] for rule in CONFIG['routing']['rules']]}")
+    logger.info("=" * 50)
+    
     uvicorn.run(app, host="0.0.0.0", port=8000)

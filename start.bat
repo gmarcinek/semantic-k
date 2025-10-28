@@ -2,13 +2,23 @@
 echo Starting Weather Chat Application...
 echo.
 
+REM Check if config.yml exists
+if not exist "config.yml" (
+    echo ERROR: config.yml not found!
+    echo.
+    echo Please ensure config.yml is in the current directory.
+    echo.
+    pause
+    exit /b 1
+)
+
 REM Check if .env file exists
 if not exist ".env" (
     echo ERROR: .env file not found!
     echo.
-    echo Please create a .env file with your API keys:
+    echo Please create a .env file with your OpenAI API key:
     echo   1. Copy .env.example to .env
-    echo   2. Add your OPENAI_API_KEY and/or ANTHROPIC_API_KEY
+    echo   2. Add your OPENAI_API_KEY
     echo.
     echo Example:
     echo   copy .env.example .env
@@ -23,10 +33,11 @@ echo Checking dependencies...
 python -c "import fastapi" 2>nul
 if errorlevel 1 (
     echo Installing dependencies...
-    pip install fastapi uvicorn sse-starlette pyyaml python-dotenv pydantic aiohttp openai anthropic httpx jinja2
+    pip install -r requirements.txt
 )
 
 echo.
+echo Configuration loaded from config.yml
 echo Starting server on http://localhost:8000
 echo Open your browser and navigate to http://localhost:8000
 echo.
