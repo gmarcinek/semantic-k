@@ -194,7 +194,7 @@ async def generate_anthropic_response(prompt: str, chat_history: List[Dict], sys
     try:
         client = get_anthropic_client()
         response = await client.messages.create(
-            model="claude-3-5-sonnet-20241022",  # Latest Sonnet model
+            model="claude-3-5-sonnet-20240620",  # Claude 3.5 Sonnet (stable version)
             system=system_prompt if system_prompt else "You are a helpful assistant.",
             messages=messages,
             temperature=0.7,
