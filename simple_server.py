@@ -7,7 +7,6 @@ import os
 from typing import Dict, List, Optional
 from uuid import uuid4
 
-from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,7 +47,6 @@ app.add_middleware(
 
 # Initialize API clients (lazy initialization)
 openai_client = None
-anthropic_client = None
 
 
 def get_openai_client():
@@ -60,17 +58,6 @@ def get_openai_client():
             raise ValueError("OPENAI_API_KEY not set in environment variables")
         openai_client = AsyncOpenAI(api_key=api_key)
     return openai_client
-
-
-def get_anthropic_client():
-    """Get or create Anthropic client."""
-    global anthropic_client
-    if anthropic_client is None:
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY not set in environment variables")
-        anthropic_client = AsyncAnthropic(api_key=api_key)
-    return anthropic_client
 
 
 # Weather keywords for classification
@@ -166,43 +153,14 @@ async def generate_openai_response(prompt: str, chat_history: List[Dict], system
     try:
         client = get_openai_client()
         response = await client.chat.completions.create(
-            model="gpt-4",  # Fallback to GPT-4 if GPT-5 not available
+            model="gpt-5",
             messages=messages,
             temperature=0.7,
-            max_tokens=2000
+            max_tokens=50000  # Practical visible output limit
         )
         return response.choices[0].message.content
     except Exception as e:
         logger.error(f"OpenAI error: {e}")
-        return f"Error generating response: {str(e)}"
-
-
-async def generate_anthropic_response(prompt: str, chat_history: List[Dict], system_prompt: str) -> str:
-    """Generate response using Anthropic Claude Sonnet 4.5."""
-    messages = []
-
-    # Add chat history (last 5 messages)
-    for msg in chat_history[-5:]:
-        if msg.get('role') == 'user':
-            messages.append({"role": "user", "content": msg['content']})
-        elif msg.get('role') == 'assistant':
-            messages.append({"role": "assistant", "content": msg['content']})
-
-    # Add current prompt
-    messages.append({"role": "user", "content": prompt})
-
-    try:
-        client = get_anthropic_client()
-        response = await client.messages.create(
-            model="claude-3-5-sonnet-20240620",  # Claude 3.5 Sonnet (stable version)
-            system=system_prompt if system_prompt else "You are a helpful assistant.",
-            messages=messages,
-            temperature=0.7,
-            max_tokens=2000
-        )
-        return response.content[0].text
-    except Exception as e:
-        logger.error(f"Anthropic error: {e}")
         return f"Error generating response: {str(e)}"
 
 
@@ -231,10 +189,10 @@ async def chat(request: ChatRequest):
     # Get system prompt based on topic
     if metadata["topic"] == "WEATHER":
         system_prompt = "You are a weather information assistant. Provide accurate and helpful weather-related information."
-        model_name = "sonnet-4.5"
     else:
         system_prompt = "Przepraszam, ale nie posiadam informacji na ten temat. To nie jest moja dziedzina specjalizacji. Mogę Ci pomóc tylko z informacjami związanymi z pogodą."
-        model_name = "gpt-5"
+
+    model_name = "gpt-5"
 
     logger.info(f"Processing prompt for session {session_id}: topic={metadata['topic']}, model={model_name}")
 
@@ -244,11 +202,8 @@ async def chat(request: ChatRequest):
             # First, send metadata
             yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
 
-            # Generate response
-            if metadata["topic"] == "WEATHER":
-                response_text = await generate_anthropic_response(prompt, chat_history, system_prompt)
-            else:
-                response_text = await generate_openai_response(prompt, chat_history, system_prompt)
+            # Generate response using GPT-5 for all topics
+            response_text = await generate_openai_response(prompt, chat_history, system_prompt)
 
             # Simulate streaming by sending chunks
             chunk_size = 10
