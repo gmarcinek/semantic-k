@@ -1,0 +1,56 @@
+"""Pydantic models and schemas for the application."""
+from typing import Dict, List, Optional
+from pydantic import BaseModel, Field
+
+
+class ChatRequest(BaseModel):
+    """Chat request model."""
+    prompt: str = Field(..., description="User's message/prompt")
+    session_id: Optional[str] = Field(None, description="Session identifier for conversation continuity")
+
+
+class ChatMessage(BaseModel):
+    """Chat message model for history."""
+    role: str = Field(..., description="Role: 'user' or 'assistant'")
+    content: str = Field(..., description="Message content")
+    metadata: Optional[Dict] = Field(None, description="Additional metadata")
+    model: Optional[str] = Field(None, description="Model used for generation")
+
+
+class AdvisoryResult(BaseModel):
+    """Result from an advisory tool."""
+    tool_name: str = Field(..., description="Name of the advisory tool")
+    score: float = Field(..., ge=0.0, le=1.0, description="Confidence score (0-1)")
+    reasoning: str = Field(..., description="Explanation of the result")
+    metadata: Dict = Field(default_factory=dict, description="Additional metadata")
+
+
+class ClassificationMetadata(BaseModel):
+    """Metadata about prompt classification."""
+    topic: str = Field(..., description="Identified topic/category")
+    topic_relevance: float = Field(..., ge=0.0, le=1.0, description="Topic relevance score")
+    is_dangerous: float = Field(..., ge=0.0, le=1.0, description="Security risk score")
+    is_continuation: float = Field(..., ge=0.0, le=1.0, description="Conversation continuation score")
+    topic_change: float = Field(..., ge=0.0, le=1.0, description="Topic change detection score")
+    summary: str = Field(..., description="Human-readable summary")
+    advisory_results: List[AdvisoryResult] = Field(default_factory=list, description="Results from advisory tools")
+
+
+class SessionResetRequest(BaseModel):
+    """Session reset request."""
+    session_id: Optional[str] = Field(None, description="Session ID to reset")
+
+
+class HealthResponse(BaseModel):
+    """Health check response."""
+    status: str
+    config_loaded: bool
+    default_model: str
+    available_models: List[str]
+
+
+class ConfigResponse(BaseModel):
+    """Configuration response (sanitized)."""
+    default_model: str
+    models: Dict
+    routing_rules: List[Dict]
