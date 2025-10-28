@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Semantic Kernel Chat - Weather Assistant</title>
+
+    <!-- Bootstrap 5 CSS from CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <style>
+        html, body {
+            height: 100vh;
+            width: 100vw;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        .container-fluid {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            padding: 0;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 1.8rem;
+            font-weight: 600;
+        }
+
+        .header p {
+            margin: 0.25rem 0 0 0;
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+            background-color: #f8f9fa;
+        }
+
+        .chat-column {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            border-right: 2px solid #dee2e6;
+            background-color: white;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.5rem;
+            scroll-behavior: smooth;
+        }
+
+        .message {
+            margin-bottom: 1rem;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message-user {
+            text-align: right;
+        }
+
+        .message-user .message-bubble {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: inline-block;
+            padding: 0.75rem 1rem;
+            border-radius: 18px 18px 4px 18px;
+            max-width: 70%;
+            word-wrap: break-word;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .message-assistant {
+            text-align: left;
+        }
+
+        .message-assistant .message-bubble {
+            background: #e9ecef;
+            color: #212529;
+            display: inline-block;
+            padding: 0.75rem 1rem;
+            border-radius: 18px 18px 18px 4px;
+            max-width: 70%;
+            word-wrap: break-word;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .typing-indicator {
+            display: inline-block;
+            padding: 0.75rem 1rem;
+            background: #e9ecef;
+            border-radius: 18px;
+        }
+
+        .typing-indicator span {
+            height: 8px;
+            width: 8px;
+            background-color: #999;
+            border-radius: 50%;
+            display: inline-block;
+            margin: 0 2px;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-indicator span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-indicator span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-10px); }
+        }
+
+        .input-column {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 1.5rem;
+            background-color: #f8f9fa;
+        }
+
+        .input-form {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-label {
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 0.5rem;
+        }
+
+        .form-control {
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+        }
+
+        .form-control:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.25rem rgba(102, 126, 234, 0.25);
+        }
+
+        #userPrompt {
+            flex: 1;
+            resize: none;
+            font-size: 1rem;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .btn {
+            flex: 1;
+            border-radius: 8px;
+            font-weight: 600;
+            padding: 0.75rem;
+            border: none;
+            transition: all 0.2s ease-in-out;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background-color: #5a6268;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(108, 117, 125, 0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .footer {
+            background-color: #212529;
+            color: white;
+            padding: 1rem 1.5rem;
+            font-size: 0.85rem;
+        }
+
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+        }
+
+        .footer-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .footer-label {
+            font-weight: 600;
+            opacity: 0.7;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .footer-value {
+            font-size: 0.9rem;
+            margin-top: 0.25rem;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25em 0.6em;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border-radius: 4px;
+        }
+
+        .badge-weather {
+            background-color: #0d6efd;
+            color: white;
+        }
+
+        .badge-other {
+            background-color: #6c757d;
+            color: white;
+        }
+
+        .progress {
+            height: 8px;
+            border-radius: 4px;
+            background-color: rgba(255, 255, 255, 0.1);
+            margin-top: 0.25rem;
+        }
+
+        .progress-bar {
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .scrollbar-custom::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .scrollbar-custom::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        .scrollbar-custom::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+
+        .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <!-- Header -->
+        <div class="header">
+            <h1>🌤️ Weather Assistant Chat</h1>
+            <p>Powered by Semantic Kernel with Intelligent Routing</p>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Chat Column -->
+            <div class="chat-column">
+                <div class="chat-messages scrollbar-custom" id="chatMessages">
+                    <div class="text-center text-muted">
+                        <p>👋 Witaj! Jestem asystentem pogodowym.</p>
+                        <p>Zapytaj mnie o pogodę, prognozy lub warunki atmosferyczne.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Column -->
+            <div class="input-column">
+                <form class="input-form" id="chatForm">
+                    <div class="mb-3">
+                        <label for="userPrompt" class="form-label">💬 Twoja wiadomość:</label>
+                        <textarea
+                            class="form-control scrollbar-custom"
+                            id="userPrompt"
+                            placeholder="Wpisz pytanie o pogodę lub inny temat..."
+                            rows="10"
+                        ></textarea>
+                    </div>
+
+                    <div class="button-group">
+                        <button type="submit" class="btn btn-primary" id="sendBtn">
+                            📤 WYŚLIJ
+                        </button>
+                        <button type="button" class="btn btn-secondary" id="resetBtn">
+                            🔄 RESET
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Footer with Metadata -->
+        <div class="footer">
+            <div class="footer-content" id="metadataFooter">
+                <div class="footer-item">
+                    <span class="footer-label">Topic</span>
+                    <span class="footer-value" id="metaTopic">-</span>
+                </div>
+                <div class="footer-item">
+                    <span class="footer-label">Zgodność z tematem</span>
+                    <div class="footer-value">
+                        <div class="progress">
+                            <div class="progress-bar bg-info" id="metaRelevance" style="width: 0%"></div>
+                        </div>
+                        <span id="metaRelevanceText">0%</span>
+                    </div>
+                </div>
+                <div class="footer-item">
+                    <span class="footer-label">Bezpieczeństwo</span>
+                    <div class="footer-value">
+                        <div class="progress">
+                            <div class="progress-bar bg-warning" id="metaDanger" style="width: 0%"></div>
+                        </div>
+                        <span id="metaDangerText">0%</span>
+                    </div>
+                </div>
+                <div class="footer-item">
+                    <span class="footer-label">Kontynuacja</span>
+                    <div class="footer-value">
+                        <div class="progress">
+                            <div class="progress-bar bg-success" id="metaContinuation" style="width: 0%"></div>
+                        </div>
+                        <span id="metaContinuationText">0%</span>
+                    </div>
+                </div>
+                <div class="footer-item">
+                    <span class="footer-label">Zmiana tematu</span>
+                    <div class="footer-value">
+                        <div class="progress">
+                            <div class="progress-bar bg-primary" id="metaTopicChange" style="width: 0%"></div>
+                        </div>
+                        <span id="metaTopicChangeText">0%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-2 text-center" style="opacity: 0.8;">
+                <small id="metaSummary">Oczekiwanie na pierwszą wiadomość...</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap 5 JS from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Global state
+        let sessionId = generateUUID();
+        let isProcessing = false;
+
+        // DOM elements
+        const chatForm = document.getElementById('chatForm');
+        const userPromptInput = document.getElementById('userPrompt');
+        const chatMessages = document.getElementById('chatMessages');
+        const sendBtn = document.getElementById('sendBtn');
+        const resetBtn = document.getElementById('resetBtn');
+
+        // Metadata elements
+        const metaTopic = document.getElementById('metaTopic');
+        const metaRelevance = document.getElementById('metaRelevance');
+        const metaRelevanceText = document.getElementById('metaRelevanceText');
+        const metaDanger = document.getElementById('metaDanger');
+        const metaDangerText = document.getElementById('metaDangerText');
+        const metaContinuation = document.getElementById('metaContinuation');
+        const metaContinuationText = document.getElementById('metaContinuationText');
+        const metaTopicChange = document.getElementById('metaTopicChange');
+        const metaTopicChangeText = document.getElementById('metaTopicChangeText');
+        const metaSummary = document.getElementById('metaSummary');
+
+        // Generate UUID
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        // Add message to chat
+        function addMessage(role, content) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message message-${role}`;
+
+            const bubbleDiv = document.createElement('div');
+            bubbleDiv.className = 'message-bubble';
+            bubbleDiv.textContent = content;
+
+            messageDiv.appendChild(bubbleDiv);
+            chatMessages.appendChild(messageDiv);
+
+            // Scroll to bottom
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            return bubbleDiv;
+        }
+
+        // Add typing indicator
+        function addTypingIndicator() {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message message-assistant';
+            messageDiv.id = 'typingIndicator';
+
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'typing-indicator';
+            typingDiv.innerHTML = '<span></span><span></span><span></span>';
+
+            messageDiv.appendChild(typingDiv);
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Remove typing indicator
+        function removeTypingIndicator() {
+            const indicator = document.getElementById('typingIndicator');
+            if (indicator) {
+                indicator.remove();
+            }
+        }
+
+        // Update metadata footer
+        function updateMetadata(metadata) {
+            // Topic
+            const topicBadge = metadata.topic === 'WEATHER'
+                ? `<span class="badge badge-weather">🌤️ ${metadata.topic}</span>`
+                : `<span class="badge badge-other">❓ ${metadata.topic}</span>`;
+            metaTopic.innerHTML = topicBadge;
+
+            // Relevance
+            const relevancePercent = Math.round(metadata.topic_relevance * 100);
+            metaRelevance.style.width = `${relevancePercent}%`;
+            metaRelevanceText.textContent = `${relevancePercent}%`;
+
+            // Danger
+            const dangerPercent = Math.round(metadata.is_dangerous * 100);
+            metaDanger.style.width = `${dangerPercent}%`;
+            metaDangerText.textContent = `${dangerPercent}%`;
+
+            // Continuation
+            const continuationPercent = Math.round(metadata.is_continuation * 100);
+            metaContinuation.style.width = `${continuationPercent}%`;
+            metaContinuationText.textContent = `${continuationPercent}%`;
+
+            // Topic Change
+            const topicChangePercent = Math.round(metadata.topic_change * 100);
+            metaTopicChange.style.width = `${topicChangePercent}%`;
+            metaTopicChangeText.textContent = `${topicChangePercent}%`;
+
+            // Summary
+            metaSummary.textContent = metadata.summary;
+        }
+
+        // Send chat message
+        async function sendMessage(prompt) {
+            if (!prompt.trim() || isProcessing) return;
+
+            isProcessing = true;
+            sendBtn.disabled = true;
+            userPromptInput.disabled = true;
+
+            // Add user message to chat
+            addMessage('user', prompt);
+
+            // Clear input
+            userPromptInput.value = '';
+
+            // Add typing indicator
+            addTypingIndicator();
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        session_id: sessionId
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let assistantMessage = null;
+                let fullResponse = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = JSON.parse(line.slice(6));
+
+                            if (data.type === 'metadata') {
+                                updateMetadata(data.data);
+                            } else if (data.type === 'chunk') {
+                                // Remove typing indicator on first chunk
+                                if (!assistantMessage) {
+                                    removeTypingIndicator();
+                                    assistantMessage = addMessage('assistant', '');
+                                }
+                                fullResponse += data.data;
+                                assistantMessage.textContent = fullResponse;
+                                chatMessages.scrollTop = chatMessages.scrollHeight;
+                            } else if (data.type === 'done') {
+                                removeTypingIndicator();
+                            } else if (data.type === 'error') {
+                                removeTypingIndicator();
+                                if (!assistantMessage) {
+                                    assistantMessage = addMessage('assistant', '');
+                                }
+                                assistantMessage.textContent = '❌ ' + data.data;
+                                assistantMessage.style.color = '#dc3545';
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                removeTypingIndicator();
+                addMessage('assistant', '❌ Wystąpił błąd podczas przetwarzania wiadomości.');
+            } finally {
+                isProcessing = false;
+                sendBtn.disabled = false;
+                userPromptInput.disabled = false;
+                userPromptInput.focus();
+            }
+        }
+
+        // Reset chat session
+        async function resetSession() {
+            if (isProcessing) return;
+
+            try {
+                const response = await fetch('/api/reset', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        session_id: sessionId
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    sessionId = data.session_id;
+
+                    // Clear chat messages
+                    chatMessages.innerHTML = `
+                        <div class="text-center text-muted">
+                            <p>👋 Witaj! Jestem asystentem pogodowym.</p>
+                            <p>Zapytaj mnie o pogodę, prognozy lub warunki atmosferyczne.</p>
+                        </div>
+                    `;
+
+                    // Reset metadata
+                    metaTopic.textContent = '-';
+                    metaRelevance.style.width = '0%';
+                    metaRelevanceText.textContent = '0%';
+                    metaDanger.style.width = '0%';
+                    metaDangerText.textContent = '0%';
+                    metaContinuation.style.width = '0%';
+                    metaContinuationText.textContent = '0%';
+                    metaTopicChange.style.width = '0%';
+                    metaTopicChangeText.textContent = '0%';
+                    metaSummary.textContent = 'Oczekiwanie na pierwszą wiadomość...';
+
+                    userPromptInput.focus();
+                }
+            } catch (error) {
+                console.error('Error resetting session:', error);
+                alert('Wystąpił błąd podczas resetowania sesji.');
+            }
+        }
+
+        // Event listeners
+        chatForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const prompt = userPromptInput.value.trim();
+            if (prompt) {
+                sendMessage(prompt);
+            }
+        });
+
+        resetBtn.addEventListener('click', resetSession);
+
+        // Allow Ctrl+Enter to send message
+        userPromptInput.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                e.preventDefault();
+                const prompt = userPromptInput.value.trim();
+                if (prompt && !isProcessing) {
+                    sendMessage(prompt);
+                }
+            }
+        });
+
+        // Focus on input on load
+        userPromptInput.focus();
+    </script>
+</body>
+</html>
