@@ -4,10 +4,7 @@ import logging
 from typing import Optional
 
 from semantic_kernel import Kernel
-from semantic_kernel.connectors.ai.open_ai import (
-    AzureChatCompletion,
-    OpenAIChatCompletion,
-)
+from semantic_kernel.connectors.ai.open_ai import OpenAIChatCompletion
 
 from ..utils.config_loader import ConfigLoader, ModelConfig
 
@@ -76,36 +73,8 @@ class LLMService:
                 )
             )
             logger.info(f"Added OpenAI service: {service_id}")
-
-        elif model_config.provider == "azure_openai":
-            endpoint = self.config_loader.get_endpoint(model_config)
-            if not endpoint:
-                raise ValueError(f"Endpoint required for Azure OpenAI model: {service_id}")
-
-            kernel.add_service(
-                AzureChatCompletion(
-                    service_id=service_id,
-                    deployment_name=model_config.deployment_name,
-                    api_key=api_key,
-                    endpoint=endpoint,
-                    api_version=model_config.api_version,
-                )
-            )
-            logger.info(f"Added Azure OpenAI service: {service_id}")
-
-        elif model_config.provider == "anthropic":
-            # Note: Semantic Kernel's Anthropic support may vary by version
-            # This is a placeholder - adjust based on your SK version
-            logger.warning(
-                "Anthropic provider support depends on Semantic Kernel version. "
-                "You may need to use a custom connector."
-            )
-            raise ValueError(
-                f"Anthropic provider not yet implemented. Use OpenAI or Azure OpenAI for now."
-            )
-
         else:
-            raise ValueError(f"Unsupported provider: {model_config.provider}")
+            raise ValueError(f"Unsupported provider: {model_config.provider}. Only OpenAI is supported.")
 
     def get_kernel(self) -> Kernel:
         """Get the current kernel instance.
