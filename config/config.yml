@@ -11,6 +11,8 @@ models:
     model_id: "gpt-5"
     api_key_env: "OPENAI_API_KEY"
     max_completion_tokens: 50000
+    max_input_tokens: 272000  # 272k input tokens
+    max_output_tokens: 128000  # 128k output tokens (includes reasoning tokens)
 
 # Routing Configuration
 routing:
