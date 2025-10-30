@@ -26,7 +26,7 @@ class TopicClassifier(BaseAdvisoryTool):
         super().__init__("TopicClassifier", llm_service, config_service)
 
     def _build_system_prompt(self, available_topics: List[str]) -> str:
-        """Build system prompt with available topics.
+        """Build system prompt with available topics from config.
 
         Args:
             available_topics: List of available topic names
@@ -36,6 +36,15 @@ class TopicClassifier(BaseAdvisoryTool):
         """
         topics_str = ", ".join(available_topics)
 
+        # Get prompt template from config
+        prompt_template = self.config_service.get_classifier_prompt()
+
+        # If config has the new structure, use it
+        if prompt_template:
+            # Replace {topics} placeholder with actual topics
+            return prompt_template.format(topics=topics_str)
+
+        # Fallback to default prompt if config doesn't have the new structure
         return f"""You are a topic classification expert. Analyze user prompts and classify them into predefined topics.
 
 Available topics: {topics_str}
@@ -137,13 +146,14 @@ Be precise and context-aware in your classification.
             )
 
     def _get_available_topics(self) -> List[str]:
-        """Get available topics from routing rules.
+        """Get available topics from config.
+
+        Uses new router config if available, falls back to routing rules.
 
         Returns:
             List of topic names
         """
-        rules = self.config_service.get_routing_rules()
-        topics = [rule['name'] for rule in rules]
+        topics = self.config_service.get_available_topics()
 
         # Always include OTHER as fallback
         if 'OTHER' not in topics:

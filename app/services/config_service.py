@@ -97,17 +97,32 @@ class ConfigService:
     def get_system_prompt(self, topic: str) -> str:
         """Get system prompt for a specific topic.
 
+        Uses new routing_strategies structure if available,
+        falls back to legacy routing rules.
+
         Args:
             topic: Topic name
 
         Returns:
             System prompt string
         """
+        # Try new routing strategies first
+        if 'routing_strategies' in self.config and self.config['routing_strategies']:
+            for strategy in self.config['routing_strategies']:
+                if strategy['name'] == topic:
+                    # Get prompt value from system_prompts
+                    prompt_name = strategy['system_prompt']
+                    return self._get_prompt_value(prompt_name)
+
+        # Fall back to legacy routing rules
         rule = self.get_rule_by_name(topic)
         return rule.get('system_prompt', '') if rule else ''
 
     def get_preferred_model_for_topic(self, topic: str) -> str:
         """Get preferred model for a topic.
+
+        Uses new routing_strategies structure if available,
+        falls back to legacy routing rules.
 
         Args:
             topic: Topic name
@@ -115,10 +130,72 @@ class ConfigService:
         Returns:
             Model name
         """
+        # Try new routing strategies first
+        if 'routing_strategies' in self.config and self.config['routing_strategies']:
+            for strategy in self.config['routing_strategies']:
+                if strategy['name'] == topic:
+                    return strategy.get('preferred_model', self.get_default_model())
+
+        # Fall back to legacy routing rules
         rule = self.get_rule_by_name(topic)
         if rule and 'preferred_model' in rule:
             return rule['preferred_model']
         return self.get_default_model()
+
+    def _get_prompt_value(self, prompt_name: str) -> str:
+        """Get prompt value by name from system_prompts.
+
+        Args:
+            prompt_name: Name of the prompt
+
+        Returns:
+            Prompt value string
+        """
+        if 'system_prompts' not in self.config or not self.config['system_prompts']:
+            return ''
+
+        for prompt in self.config['system_prompts']:
+            if prompt['name'] == prompt_name:
+                return prompt['value']
+
+        return ''
+
+    def get_classifier_prompt(self) -> str:
+        """Get topic classifier prompt.
+
+        Returns:
+            Classifier prompt string
+        """
+        if 'router' not in self.config or not self.config['router']:
+            return ''
+
+        prompt_name = self.config['router'].get('classifier_prompt', '')
+        return self._get_prompt_value(prompt_name)
+
+    def get_security_advisor_prompt(self) -> str:
+        """Get security advisor prompt.
+
+        Returns:
+            Security advisor prompt string
+        """
+        if 'router' not in self.config or not self.config['router']:
+            return ''
+
+        prompt_name = self.config['router'].get('security_advisor_prompt', '')
+        return self._get_prompt_value(prompt_name)
+
+    def get_available_topics(self) -> List[str]:
+        """Get list of available topics.
+
+        Returns:
+            List of topic names
+        """
+        # Try new router config first
+        if 'router' in self.config and self.config['router']:
+            return self.config['router'].get('topics', [])
+
+        # Fall back to legacy routing rules
+        return [rule['name'] for rule in self.get_routing_rules()]
 
     def get_available_models(self) -> List[str]:
         """Get list of available model names."""
