@@ -1,4 +1,4 @@
-# Semantic Kernel LLM Configuration
+# Semantic Kernel Wikipedia Q&A Configuration
 
 # Default model to use
 default_model: "gpt-5"
@@ -14,6 +14,14 @@ models:
     max_input_tokens: 272000  # 272k input tokens
     max_output_tokens: 128000  # 128k output tokens (includes reasoning tokens)
 
+  # GPT-4o mini for reranking
+  gpt-4o-mini:
+    provider: "openai"
+    model_id: "gpt-4o-mini"
+    api_key_env: "OPENAI_API_KEY"
+    max_completion_tokens: 16384
+    max_input_tokens: 128000
+
 # ============================================================================
 # ROUTER CONFIGURATION - Topic Classification & Security
 # ============================================================================
@@ -26,20 +34,33 @@ router:
 
   # Available topics for classification
   topics:
-    - WEATHER
-    - ADVISORY
+    - GENERAL_KNOWLEDGE
     - OTHER
+
+# ============================================================================
+# WIKIPEDIA CONFIGURATION
+# ============================================================================
+wikipedia:
+  # Wikipedia language
+  language: "en"
+
+  # Search configuration
+  search:
+    max_results: 10  # Maximum number of search results to retrieve
+    extract_length: 500  # Number of characters to extract from each article
+
+  # Reranking configuration
+  reranking:
+    enabled: true
+    model: "gpt-4o-mini"  # Model to use for reranking
+    top_n: 5  # Number of top results to return after reranking
 
 # ============================================================================
 # ROUTING STRATEGIES - Topic to System Prompt Mapping
 # ============================================================================
 routing_strategies:
-  - name: WEATHER
-    system_prompt: WEATHER_V1
-    preferred_model: "gpt-5"
-
-  - name: ADVISORY
-    system_prompt: ADVISORY_V1
+  - name: GENERAL_KNOWLEDGE
+    system_prompt: WIKIPEDIA_V1
     preferred_model: "gpt-5"
 
   - name: OTHER
@@ -50,17 +71,30 @@ routing_strategies:
 # SYSTEM PROMPTS - Actual Prompt Definitions
 # ============================================================================
 system_prompts:
-  # Weather assistant prompt
-  - name: WEATHER_V1
-    value: "You are a weather information assistant. Provide accurate and helpful weather-related information."
+  # Wikipedia Q&A assistant prompt
+  - name: WIKIPEDIA_V1
+    value: |
+      You are a Wikipedia-based Q&A assistant. Your role is to answer questions ONLY using information from Wikipedia.
 
-  # Advisory assistant prompt
-  - name: ADVISORY_V1
-    value: "You are a helpful assistant specializing in advice and guidance. Provide thoughtful, well-reasoned advice on various topics."
+      CRITICAL RULES:
+      1. You will receive Wikipedia search results with excerpts from relevant articles
+      2. Base your answers EXCLUSIVELY on the provided Wikipedia content
+      3. Always cite your sources by mentioning the Wikipedia article titles
+      4. If the provided Wikipedia content doesn't contain enough information, say so explicitly
+      5. Never use your general knowledge - only use the Wikipedia excerpts provided
+      6. Provide clear, concise answers with proper citations
+      7. If multiple Wikipedia articles are relevant, synthesize the information and cite all sources
+
+      Format your responses like this:
+      - Answer the question clearly and concisely
+      - Reference Wikipedia article titles in your answer
+      - List sources at the end: "Sources: [Article 1], [Article 2], ..."
+
+      Be informative, accurate, and always ground your answers in the provided Wikipedia content.
 
   # Fallback/rejection prompt
   - name: OTHER_V1
-    value: "Przepraszam, ale nie posiadam informacji na ten temat. To nie jest moja dziedzina specjalizacji. Mogę Ci pomóc tylko z informacjami związanymi z pogodą."
+    value: "I'm sorry, but I can only answer questions based on Wikipedia. Please ask me a factual question that I can research on Wikipedia for you."
 
   # Topic classifier system prompt
   - name: TOPIC_CLASSIFIER_V1
@@ -125,15 +159,10 @@ system_prompts:
 routing:
   # Rules for prompt routing based on keywords or patterns
   rules:
-    - name: "WEATHER"
-      keywords: ["weather", "pogoda", "temperatura", "temperature", "forecast", "prognoza", "rain", "deszcz", "snow", "śnieg", "sun", "słońce", "cloud", "chmura", "wind", "wiatr", "storm", "burza"]
+    - name: "GENERAL_KNOWLEDGE"
+      keywords: []  # All queries go to Wikipedia search
       preferred_model: "gpt-5"
-      system_prompt: "You are a weather information assistant. Provide accurate and helpful weather-related information."
-
-    - name: "OTHER"
-      keywords: []  # catches everything that doesn't match WEATHER
-      preferred_model: "gpt-5"
-      system_prompt: "Przepraszam, ale nie posiadam informacji na ten temat. To nie jest moja dziedzina specjalizacji. Mogę Ci pomóc tylko z informacjami związanymi z pogodą."
+      system_prompt: "You are a Wikipedia-based Q&A assistant. Answer questions using only Wikipedia information."
 
   # Default fallback model when no rules match
   fallback_model: "gpt-5"

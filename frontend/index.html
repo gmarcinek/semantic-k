@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Semantic Kernel Chat - Weather Assistant</title>
+    <title>Wikipedia Q&A - Intelligent Search</title>
 
     <!-- Bootstrap 5 CSS from CDN -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -253,7 +253,7 @@
             border-radius: 4px;
         }
 
-        .badge-weather {
+        .badge-general {
             background-color: #0d6efd;
             color: white;
         }
@@ -261,6 +261,53 @@
         .badge-other {
             background-color: #6c757d;
             color: white;
+        }
+
+        .wikipedia-sources {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            background-color: #f8f9fa;
+            border-left: 3px solid #0d6efd;
+            border-radius: 4px;
+        }
+
+        .wikipedia-sources h6 {
+            margin: 0 0 0.5rem 0;
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .source-item {
+            margin-bottom: 0.5rem;
+            padding: 0.5rem;
+            background-color: white;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+        }
+
+        .source-title {
+            font-weight: 600;
+            color: #0d6efd;
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+
+        .source-title:hover {
+            text-decoration: underline;
+        }
+
+        .source-relevance {
+            font-size: 0.75rem;
+            color: #6c757d;
+            margin-left: 0.5rem;
+        }
+
+        .source-extract {
+            font-size: 0.8rem;
+            color: #6c757d;
+            margin-top: 0.25rem;
+            line-height: 1.4;
         }
 
         .progress {
@@ -297,8 +344,8 @@
     <div class="container-fluid">
         <!-- Header -->
         <div class="header">
-            <h1>🌤️ Weather Assistant Chat</h1>
-            <p>Powered by Semantic Kernel with Intelligent Routing</p>
+            <h1>📚 Wikipedia Q&A Assistant</h1>
+            <p>Powered by Wikipedia API with GPT-4o mini Reranking</p>
         </div>
 
         <!-- Main Content -->
@@ -307,8 +354,8 @@
             <div class="chat-column">
                 <div class="chat-messages scrollbar-custom" id="chatMessages">
                     <div class="text-center text-muted">
-                        <p>👋 Witaj! Jestem asystentem pogodowym.</p>
-                        <p>Zapytaj mnie o pogodę, prognozy lub warunki atmosferyczne.</p>
+                        <p>👋 Witaj! Jestem asystentem Wikipedia Q&A.</p>
+                        <p>Zadaj mi pytanie, a znajdę dla Ciebie informacje z Wikipedii.</p>
                     </div>
                 </div>
             </div>
@@ -321,7 +368,7 @@
                         <textarea
                             class="form-control scrollbar-custom"
                             id="userPrompt"
-                            placeholder="Wpisz pytanie o pogodę lub inny temat..."
+                            placeholder="Wpisz pytanie, a znajdę informacje z Wikipedii..."
                             rows="10"
                         ></textarea>
                     </div>
@@ -468,8 +515,8 @@
         // Update metadata footer
         function updateMetadata(metadata) {
             // Topic
-            const topicBadge = metadata.topic === 'WEATHER'
-                ? `<span class="badge badge-weather">🌤️ ${metadata.topic}</span>`
+            const topicBadge = metadata.topic === 'GENERAL_KNOWLEDGE'
+                ? `<span class="badge badge-general">📚 ${metadata.topic}</span>`
                 : `<span class="badge badge-other">❓ ${metadata.topic}</span>`;
             metaTopic.innerHTML = topicBadge;
 
@@ -495,6 +542,48 @@
 
             // Summary
             metaSummary.textContent = metadata.summary;
+        }
+
+        // Display Wikipedia sources
+        function displayWikipediaSources(wikipediaData) {
+            const sourcesDiv = document.createElement('div');
+            sourcesDiv.className = 'wikipedia-sources';
+
+            const title = document.createElement('h6');
+            title.innerHTML = `📖 Wikipedia Sources (${wikipediaData.sources.length} articles${wikipediaData.reranked ? ', reranked by ' + wikipediaData.reranking_model : ''}):`;
+            sourcesDiv.appendChild(title);
+
+            wikipediaData.sources.forEach((source, index) => {
+                const sourceItem = document.createElement('div');
+                sourceItem.className = 'source-item';
+
+                const titleLink = document.createElement('a');
+                titleLink.href = source.url;
+                titleLink.target = '_blank';
+                titleLink.className = 'source-title';
+                titleLink.textContent = `${index + 1}. ${source.title}`;
+
+                if (source.relevance_score !== null) {
+                    const relevanceSpan = document.createElement('span');
+                    relevanceSpan.className = 'source-relevance';
+                    relevanceSpan.textContent = `(Relevance: ${Math.round(source.relevance_score * 100)}%)`;
+                    titleLink.appendChild(relevanceSpan);
+                }
+
+                sourceItem.appendChild(titleLink);
+
+                if (source.extract) {
+                    const extractDiv = document.createElement('div');
+                    extractDiv.className = 'source-extract';
+                    extractDiv.textContent = source.extract.substring(0, 150) + '...';
+                    sourceItem.appendChild(extractDiv);
+                }
+
+                sourcesDiv.appendChild(sourceItem);
+            });
+
+            chatMessages.appendChild(sourcesDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
         // Send chat message
@@ -548,6 +637,8 @@
 
                             if (data.type === 'metadata') {
                                 updateMetadata(data.data);
+                            } else if (data.type === 'wikipedia') {
+                                displayWikipediaSources(data.data);
                             } else if (data.type === 'chunk') {
                                 // Remove typing indicator on first chunk
                                 if (!assistantMessage) {
@@ -604,8 +695,8 @@
                     // Clear chat messages
                     chatMessages.innerHTML = `
                         <div class="text-center text-muted">
-                            <p>👋 Witaj! Jestem asystentem pogodowym.</p>
-                            <p>Zapytaj mnie o pogodę, prognozy lub warunki atmosferyczne.</p>
+                            <p>👋 Witaj! Jestem asystentem Wikipedia Q&A.</p>
+                            <p>Zadaj mi pytanie, a znajdę dla Ciebie informacje z Wikipedii.</p>
                         </div>
                     `;
 
