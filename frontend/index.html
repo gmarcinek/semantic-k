@@ -393,7 +393,20 @@
 
     <script>
         // Global state
-        let sessionId = generateUUID();
+        // Persist session across reloads to keep history
+        let sessionId = (function() {
+            try {
+                const saved = localStorage.getItem('sessionId');
+                if (saved && typeof saved === 'string' && saved.length > 0) {
+                    return saved;
+                }
+            } catch (e) {
+                // localStorage may be unavailable; fall back to random
+            }
+            const fresh = generateUUID();
+            try { localStorage.setItem('sessionId', fresh); } catch (e) {}
+            return fresh;
+        })();
         let isProcessing = false;
 
         // DOM elements
@@ -600,6 +613,7 @@
                 if (response.ok) {
                     const data = await response.json();
                     sessionId = data.session_id;
+                    try { localStorage.setItem('sessionId', sessionId); } catch (e) {}
 
                     // Clear chat messages
                     chatMessages.innerHTML = `

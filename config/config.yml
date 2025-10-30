@@ -1,35 +1,77 @@
 # Semantic Kernel LLM Configuration
 
 # Default model to use
-default_model: "gpt-5"
+default_model: "gpt-4.1-mini"
 
 # LLM Models Configuration
 models:
-  # OpenAI GPT-5
-  gpt-5:
+  # OpenAI GPT-4.1 Mini (faster, cheaper)
+  gpt-4.1-mini:
     provider: "openai"
-    model_id: "gpt-5"
+    model_id: "gpt-4.1-mini"
     api_key_env: "OPENAI_API_KEY"
-    max_completion_tokens: 50000
-    max_input_tokens: 272000  # 272k input tokens
-    max_output_tokens: 128000  # 128k output tokens (includes reasoning tokens)
+    temperature: 0.0
+    # Optional: set max tokens if you want to cap completions
+    # max_completion_tokens: 4096
 
-# Routing Configuration
-routing:
-  # Rules for prompt routing based on keywords or patterns
-  rules:
-    - name: "WEATHER"
-      keywords: ["weather", "pogoda", "temperatura", "temperature", "forecast", "prognoza", "rain", "deszcz", "snow", "śnieg", "sun", "słońce", "cloud", "chmura", "wind", "wiatr", "storm", "burza"]
-      preferred_model: "gpt-5"
-      system_prompt: "You are a weather information assistant. Provide accurate and helpful weather-related information."
+# Chat behavior
+chat:
+  # How many past messages to include in LLM context.
+  # Set to a positive integer for a fixed window, or 0/negative for full history.
+  history_window: -1
 
-    - name: "OTHER"
-      keywords: []  # catches everything that doesn't match WEATHER
-      preferred_model: "gpt-5"
-      system_prompt: "Przepraszam, ale nie posiadam informacji na ten temat. To nie jest moja dziedzina specjalizacji. Mogę Ci pomóc tylko z informacjami związanymi z pogodą."
+# Weather configuration
+weather:
+  # Default provider for live data (open-meteo requires no key)
+  provider: "open-meteo"
 
-  # Default fallback model when no rules match
-  fallback_model: "gpt-5"
+# Router Prompt (topic declaration)
+router:
+  topics: ["WEATHER", "ADVISORY", "OTHER"]
+  prompt: |
+    Wykryj, który z topików najlepiej pasuje do zapytania użytkownika.
+    Do wyboru masz wyłącznie: WEATHER, ADVISORY, OTHER.
+    Zwróć dokładnie jedną nazwę topiku bez dodatkowego tekstu.
+
+# Strategies (map topics to system prompts/models)
+strategies:
+  - name: "WEATHER"
+    prompt: "WEATHER_V1"
+    preferred_model: "gpt-4.1-mini"
+
+  - name: "ADVISORY"
+    prompt: "ADVISORY_V1"
+    preferred_model: "gpt-4.1-mini"
+
+  - name: "OTHER"
+    prompt: "OTHER_V1"
+    preferred_model: "gpt-4.1-mini"
+
+# Prompts (actual system prompts)
+prompts:
+  - name: "WEATHER_V1"
+    value: |
+      Jesteś pogodynką i ekspertem od informacji meteorologicznych.
+      - Podawaj aktualną pogodę, prognozy, temperatury, opady i wiatr.
+      - Jeśli brakuje danych w pytaniu (lokalizacja i/lub horyzont czasowy), ZAWSZE dopytuj aż uzyskasz minimalny komplet do odpowiedzi.
+      - Utrzymuj rozmowę prowadząc użytkownika do doprecyzowania (krótkie, konkretne pytania uzupełniające).
+      - Jeśli dostępny jest kontekst [Plugin Context], wykorzystaj go w odpowiedzi (traktuj jako dane pomocnicze).
+      - Odpowiadaj jasno i rzeczowo, w języku użytkownika.
+      - Nie wymyślaj danych pomiarowych; jeśli nie wiesz, powiedz czego potrzebujesz.
+
+  - name: "ADVISORY_V1"
+    value: |
+      Jesteś doradcą ds. ostrzeżeń i zaleceń pogodowych.
+      - Udzielaj praktycznych porad bezpieczeństwa (burze, upały, mróz, wiatr, powodzie).
+      - Skup się na prewencji, przygotowaniu i zachowaniu w trakcie zjawiska.
+      - Bądź konkretny, rzeczowy i empatyczny; unikaj paniki.
+      - Jeśli region/czas nie są jasne, poproś o doprecyzowanie.
+
+  - name: "OTHER_V1"
+    value: |
+      Jesteś bramką bezpieczeństwa (security gatekeeper).
+      - Uprzejmie, lecz stanowczo informujesz, że obsługujesz tylko tematy: WEATHER (pogoda) oraz ADVISORY (ostrzeżenia i zalecenia pogodowe).
+      - Zachęć użytkownika do zadania pytania związanego z pogodą lub bezpieczeństwem pogodowym.
 
 # Logging Configuration
 logging:
