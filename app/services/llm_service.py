@@ -5,8 +5,10 @@ import os
 from typing import Dict, List, Optional
 
 from openai import AsyncOpenAI
+from app.utils.colored_logger import get_plugin_logger
 
 logger = logging.getLogger(__name__)
+plugin_logger = get_plugin_logger(__name__, 'llm')
 
 
 class LLMService:
@@ -93,6 +95,11 @@ class LLMService:
             content = response.choices[0].message.content
 
             logger.debug(f"Received response from LLM: {len(content)} chars")
+
+            # Log LLM response
+            preview = content[:150] + "..." if len(content) > 150 else content
+            plugin_logger.info(f"🤖 LLM Response ({model_config['model_id']}): {len(content)} chars")
+            plugin_logger.info(f"   {preview}")
 
             return content
 

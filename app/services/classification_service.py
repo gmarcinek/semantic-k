@@ -5,8 +5,10 @@ from typing import Dict, List, Optional
 
 from app.advisory_tools import SecurityAdvisor, TopicClassifier
 from app.models import ClassificationMetadata
+from app.utils.colored_logger import get_plugin_logger
 
 logger = logging.getLogger(__name__)
+plugin_logger = get_plugin_logger(__name__, 'classification')
 
 
 class ClassificationService:
@@ -94,6 +96,16 @@ class ClassificationService:
             f"Classification complete: topic={metadata.topic}, "
             f"security_risk={metadata.is_dangerous:.2f}"
         )
+
+        # Log classification results with plugin logger
+        plugin_logger.info(f"🏷️  Prompt Classification Results:")
+        plugin_logger.info(f"   📂 Topic: {metadata.topic} (relevance: {metadata.topic_relevance:.2f})")
+        if metadata.is_dangerous > 0.5:
+            plugin_logger.warning(f"   ⚠️  Security Risk: {metadata.is_dangerous:.2f} - HIGH")
+        elif metadata.is_dangerous > 0.2:
+            plugin_logger.info(f"   ⚠️  Security Risk: {metadata.is_dangerous:.2f} - MODERATE")
+        else:
+            plugin_logger.info(f"   ✅ Security Risk: {metadata.is_dangerous:.2f} - LOW")
 
         return metadata
 
