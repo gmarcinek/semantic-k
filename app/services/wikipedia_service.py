@@ -26,6 +26,12 @@ class WikipediaService:
         """
         self.language = language
         self.base_url = f"https://{language}.wikipedia.org/w/api.php"
+        # Wikipedia API requires a descriptive User-Agent per policy
+        # https://meta.wikimedia.org/wiki/User-Agent_policy
+        self._headers = {
+            "User-Agent": "semantic-k/1.0 (Wikipedia Q&A; contact: local)",
+            "Accept": "application/json"
+        }
 
     async def search(
         self,
@@ -54,7 +60,19 @@ class WikipediaService:
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(self.base_url, params=params) as response:
+                async with session.get(self.base_url, params=params, headers=self._headers) as response:
+                    if response.status != 200:
+                        text = await response.text()
+                        logger.error(f"Wikipedia search HTTP {response.status}: {text[:200]}")
+                        return []
+
+                    # Ensure JSON content
+                    content_type = response.headers.get("Content-Type", "").lower()
+                    if "application/json" not in content_type:
+                        text = await response.text()
+                        logger.error(f"Wikipedia search non-JSON ({content_type}): {text[:200]}")
+                        return []
+
                     data = await response.json()
 
                     if "query" in data and "search" in data["query"]:
@@ -107,7 +125,18 @@ class WikipediaService:
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(self.base_url, params=params) as response:
+                async with session.get(self.base_url, params=params, headers=self._headers) as response:
+                    if response.status != 200:
+                        text = await response.text()
+                        logger.error(f"Wikipedia article HTTP {response.status}: {text[:200]}")
+                        return None
+
+                    content_type = response.headers.get("Content-Type", "").lower()
+                    if "application/json" not in content_type:
+                        text = await response.text()
+                        logger.error(f"Wikipedia article non-JSON ({content_type}): {text[:200]}")
+                        return None
+
                     data = await response.json()
 
                     if "query" in data and "pages" in data["query"]:
@@ -154,7 +183,18 @@ class WikipediaService:
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(self.base_url, params=params) as response:
+                async with session.get(self.base_url, params=params, headers=self._headers) as response:
+                    if response.status != 200:
+                        text = await response.text()
+                        logger.error(f"Wikipedia article by pageid HTTP {response.status}: {text[:200]}")
+                        return None
+
+                    content_type = response.headers.get("Content-Type", "").lower()
+                    if "application/json" not in content_type:
+                        text = await response.text()
+                        logger.error(f"Wikipedia article by pageid non-JSON ({content_type}): {text[:200]}")
+                        return None
+
                     data = await response.json()
 
                     if "query" in data and "pages" in data["query"]:
@@ -204,7 +244,18 @@ class WikipediaService:
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(self.base_url, params=params) as response:
+                async with session.get(self.base_url, params=params, headers=self._headers) as response:
+                    if response.status != 200:
+                        text = await response.text()
+                        logger.error(f"Wikipedia multiple articles HTTP {response.status}: {text[:200]}")
+                        return []
+
+                    content_type = response.headers.get("Content-Type", "").lower()
+                    if "application/json" not in content_type:
+                        text = await response.text()
+                        logger.error(f"Wikipedia multiple articles non-JSON ({content_type}): {text[:200]}")
+                        return []
+
                     data = await response.json()
 
                     if "query" in data and "pages" in data["query"]:

@@ -41,8 +41,10 @@ class TopicClassifier(BaseAdvisoryTool):
 
         # If config has the new structure, use it
         if prompt_template:
-            # Replace {topics} placeholder with actual topics
-            return prompt_template.format(topics=topics_str)
+            # Replace {topics} placeholder with actual topics without invoking
+            # str.format on the full template (which may contain JSON braces).
+            # This avoids KeyError from unescaped `{`/`}` in JSON examples.
+            return prompt_template.replace('{topics}', topics_str)
 
         # Fallback to default prompt if config doesn't have the new structure
         return f"""You are a topic classification expert. Analyze user prompts and classify them into predefined topics.

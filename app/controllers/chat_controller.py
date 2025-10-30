@@ -6,6 +6,7 @@ from typing import Dict, Optional
 from uuid import uuid4
 
 from app.models import ChatRequest, WikipediaSource, WikipediaMetadata
+from app.utils.search_query_builder import SearchQueryBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -89,18 +90,46 @@ class ChatController:
             enhanced_prompt = prompt
 
             if metadata.topic == "GENERAL_KNOWLEDGE":
-                logger.info(f"Searching Wikipedia for: {prompt}")
+                # Build smart search candidates from the user's prompt
+                candidates = SearchQueryBuilder.build_candidates(prompt)
+                logger.info(f"Searching Wikipedia for candidates: {candidates}")
 
                 # Get Wikipedia configuration
                 wiki_config = self.config_service.config.get("wikipedia", {})
                 search_config = wiki_config.get("search", {})
                 reranking_config = wiki_config.get("reranking", {})
 
-                # Search Wikipedia
-                search_results = await self.wikipedia_service.search(
-                    query=prompt,
-                    limit=search_config.get("max_results", 10)
-                )
+                # Search Wikipedia with candidates in current language
+                search_results = []
+                used_query = None
+                for q in candidates:
+                    results_try = await self.wikipedia_service.search(
+                        query=q,
+                        limit=search_config.get("max_results", 10)
+                    )
+                    if results_try:
+                        search_results = results_try
+                        used_query = q
+                        break
+
+                # If no results and likely a different language, try alternate language
+                if not search_results:
+                    likely_lang = SearchQueryBuilder.detect_language(prompt, default=wiki_config.get("language", "en"))
+                    current_lang = wiki_config.get("language", "en")
+                    if likely_lang and likely_lang != current_lang:
+                        from app.services.wikipedia_service import WikipediaService
+                        alt_service = WikipediaService(language=likely_lang)
+                        for q in candidates:
+                            results_try = await alt_service.search(
+                                query=q,
+                                limit=search_config.get("max_results", 10)
+                            )
+                            if results_try:
+                                search_results = results_try
+                                used_query = q
+                                # Replace service so subsequent calls use the right language
+                                self.wikipedia_service = alt_service
+                                break
 
                 if search_results:
                     # Rerank results if enabled
@@ -160,7 +189,7 @@ Please answer the user's question based ONLY on the Wikipedia information provid
                     ]
 
                     wikipedia_metadata = WikipediaMetadata(
-                        query=prompt,
+                        query=used_query or prompt,
                         sources=sources,
                         total_results=len(search_results),
                         reranked=reranking_config.get("enabled", True),
@@ -172,8 +201,11 @@ Please answer the user's question based ONLY on the Wikipedia information provid
 
                     logger.info(f"Wikipedia search complete: {len(articles)} articles retrieved")
                 else:
-                    logger.info("No Wikipedia results found")
-                    enhanced_prompt = f"{prompt}\n\nNote: No relevant Wikipedia articles were found for this query."
+                    logger.info("No Wikipedia results found for any candidate")
+                    enhanced_prompt = (
+                        f"{prompt}\n\nNote: No relevant Wikipedia articles were found for related queries: "
+                        f"{', '.join(candidates)}."
+                    )
 
             # Generate response
             response_text = await self.llm_service.generate_chat_response(

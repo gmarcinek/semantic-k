@@ -42,7 +42,7 @@ router:
 # ============================================================================
 wikipedia:
   # Wikipedia language
-  language: "en"
+  language: "pl"
 
   # Search configuration
   search:
