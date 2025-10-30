@@ -5,7 +5,7 @@ import logging
 from typing import Dict, Optional
 from uuid import uuid4
 
-from app.models import ChatRequest
+from app.models import ChatRequest, WikipediaSource, WikipediaMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,9 @@ class ChatController:
         session_service,
         classification_service,
         llm_service,
-        config_service
+        config_service,
+        wikipedia_service,
+        reranker_service
     ):
         """Initialize chat controller.
 
@@ -27,11 +29,15 @@ class ChatController:
             classification_service: Prompt classification service
             llm_service: LLM API service
             config_service: Configuration service
+            wikipedia_service: Wikipedia API service
+            reranker_service: Wikipedia reranker service
         """
         self.session_service = session_service
         self.classification_service = classification_service
         self.llm_service = llm_service
         self.config_service = config_service
+        self.wikipedia_service = wikipedia_service
+        self.reranker_service = reranker_service
 
     async def handle_chat(self, request: ChatRequest):
         """Handle chat request with streaming response.
@@ -78,9 +84,100 @@ class ChatController:
             # Get conversation context
             context = self.session_service.get_conversation_context(session_id)
 
+            # Wikipedia search and reranking
+            wikipedia_metadata = None
+            enhanced_prompt = prompt
+
+            if metadata.topic == "GENERAL_KNOWLEDGE":
+                logger.info(f"Searching Wikipedia for: {prompt}")
+
+                # Get Wikipedia configuration
+                wiki_config = self.config_service.config.get("wikipedia", {})
+                search_config = wiki_config.get("search", {})
+                reranking_config = wiki_config.get("reranking", {})
+
+                # Search Wikipedia
+                search_results = await self.wikipedia_service.search(
+                    query=prompt,
+                    limit=search_config.get("max_results", 10)
+                )
+
+                if search_results:
+                    # Rerank results if enabled
+                    if reranking_config.get("enabled", True):
+                        logger.info("Reranking Wikipedia results")
+                        ranked_results = await self.reranker_service.rerank_results(
+                            query=prompt,
+                            search_results=search_results,
+                            top_n=reranking_config.get("top_n", 5),
+                            model=reranking_config.get("model", "gpt-4o-mini")
+                        )
+                    else:
+                        # Use original ranking
+                        from app.services.reranker_service import RankedResult
+                        ranked_results = [
+                            RankedResult(
+                                pageid=r.get("pageid", 0),
+                                title=r.get("title", ""),
+                                snippet=r.get("snippet", ""),
+                                relevance_score=1.0 - (i * 0.1),
+                                reasoning="Original ranking"
+                            )
+                            for i, r in enumerate(search_results[:reranking_config.get("top_n", 5)])
+                        ]
+
+                    # Get full article content for top results
+                    pageids = [r.pageid for r in ranked_results]
+                    articles = await self.wikipedia_service.get_multiple_articles(
+                        pageids=pageids,
+                        extract_length=search_config.get("extract_length", 500)
+                    )
+
+                    # Build Wikipedia context
+                    wiki_context = self._build_wikipedia_context(articles)
+
+                    # Enhance prompt with Wikipedia content
+                    enhanced_prompt = f"""User Question: {prompt}
+
+Wikipedia Information:
+{wiki_context}
+
+Please answer the user's question based ONLY on the Wikipedia information provided above. Include citations to the article titles."""
+
+                    # Build Wikipedia metadata
+                    sources = [
+                        WikipediaSource(
+                            title=article.get("title", ""),
+                            url=article.get("url", ""),
+                            pageid=article.get("pageid", 0),
+                            extract=article.get("extract", ""),
+                            relevance_score=next(
+                                (r.relevance_score for r in ranked_results if r.pageid == article.get("pageid")),
+                                None
+                            )
+                        )
+                        for article in articles
+                    ]
+
+                    wikipedia_metadata = WikipediaMetadata(
+                        query=prompt,
+                        sources=sources,
+                        total_results=len(search_results),
+                        reranked=reranking_config.get("enabled", True),
+                        reranking_model=reranking_config.get("model", "gpt-4o-mini") if reranking_config.get("enabled", True) else None
+                    )
+
+                    # Send Wikipedia metadata to client
+                    yield self._format_sse('wikipedia', wikipedia_metadata.model_dump())
+
+                    logger.info(f"Wikipedia search complete: {len(articles)} articles retrieved")
+                else:
+                    logger.info("No Wikipedia results found")
+                    enhanced_prompt = f"{prompt}\n\nNote: No relevant Wikipedia articles were found for this query."
+
             # Generate response
             response_text = await self.llm_service.generate_chat_response(
-                prompt=prompt,
+                prompt=enhanced_prompt,
                 chat_history=context,
                 system_prompt=system_prompt,
                 model_config=model_config
@@ -97,11 +194,15 @@ class ChatController:
             yield self._format_sse('done', {})
 
             # Save to chat history
+            user_metadata = metadata.model_dump()
+            if wikipedia_metadata:
+                user_metadata['wikipedia'] = wikipedia_metadata.model_dump()
+
             self.session_service.add_message(
                 session_id=session_id,
                 role='user',
                 content=prompt,
-                metadata=metadata.model_dump()
+                metadata=user_metadata
             )
             self.session_service.add_message(
                 session_id=session_id,
@@ -116,6 +217,29 @@ class ChatController:
             logger.error(f"Error in chat handler: {e}", exc_info=True)
             error_msg = f"Error: {str(e)}"
             yield self._format_sse('error', error_msg)
+
+    def _build_wikipedia_context(self, articles: list) -> str:
+        """Build Wikipedia context from articles.
+
+        Args:
+            articles: List of Wikipedia articles
+
+        Returns:
+            Formatted Wikipedia context string
+        """
+        context_parts = []
+        for i, article in enumerate(articles, 1):
+            title = article.get("title", "Unknown")
+            url = article.get("url", "")
+            extract = article.get("extract", "")
+
+            context_parts.append(
+                f"Article {i}: {title}\n"
+                f"URL: {url}\n"
+                f"Content: {extract}\n"
+            )
+
+        return "\n".join(context_parts)
 
     def _format_sse(self, event_type: str, data) -> str:
         """Format data as Server-Sent Event.

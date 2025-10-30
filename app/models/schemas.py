@@ -54,3 +54,26 @@ class ConfigResponse(BaseModel):
     default_model: str
     models: Dict
     routing_rules: List[Dict]
+
+
+class WikipediaSource(BaseModel):
+    """Wikipedia article source/citation."""
+    title: str = Field(..., description="Wikipedia article title")
+    url: str = Field(..., description="Wikipedia article URL")
+    pageid: int = Field(..., description="Wikipedia page ID")
+    extract: str = Field(..., description="Article extract/snippet")
+    relevance_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Relevance score from reranker")
+
+
+class WikipediaMetadata(BaseModel):
+    """Metadata about Wikipedia search and sources used."""
+    query: str = Field(..., description="Original search query")
+    sources: List[WikipediaSource] = Field(default_factory=list, description="Wikipedia sources used")
+    total_results: int = Field(..., description="Total number of search results")
+    reranked: bool = Field(False, description="Whether results were reranked")
+    reranking_model: Optional[str] = Field(None, description="Model used for reranking")
+
+
+class ChatMessageWithSources(ChatMessage):
+    """Chat message with Wikipedia sources."""
+    wikipedia_metadata: Optional[WikipediaMetadata] = Field(None, description="Wikipedia source information")

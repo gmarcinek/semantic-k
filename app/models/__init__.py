@@ -5,6 +5,9 @@ from .schemas import (
     ClassificationMetadata,
     AdvisoryResult,
     SessionResetRequest,
+    WikipediaSource,
+    WikipediaMetadata,
+    ChatMessageWithSources,
 )
 
 __all__ = [
@@ -13,4 +16,7 @@ __all__ = [
     "ClassificationMetadata",
     "AdvisoryResult",
     "SessionResetRequest",
+    "WikipediaSource",
+    "WikipediaMetadata",
+    "ChatMessageWithSources",
 ]

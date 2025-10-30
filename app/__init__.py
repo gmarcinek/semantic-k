@@ -14,6 +14,8 @@ from app.services import (
     LLMService,
     SessionService,
 )
+from app.services.wikipedia_service import WikipediaService
+from app.services.reranker_service import RerankerService
 
 # Load environment variables
 load_dotenv()
@@ -40,6 +42,11 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     llm_service = LLMService()
     classification_service = ClassificationService(llm_service, config_service)
 
+    # Initialize Wikipedia services
+    wiki_config = config_service.config.get("wikipedia", {})
+    wikipedia_service = WikipediaService(language=wiki_config.get("language", "en"))
+    reranker_service = RerankerService(llm_service)
+
     # Initialize controllers
     logger.info("Initializing controllers...")
 
@@ -47,15 +54,17 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         session_service=session_service,
         classification_service=classification_service,
         llm_service=llm_service,
-        config_service=config_service
+        config_service=config_service,
+        wikipedia_service=wikipedia_service,
+        reranker_service=reranker_service
     )
 
     config_controller = ConfigController(config_service=config_service)
 
     # Create FastAPI app
     app = FastAPI(
-        title="Semantic-K Chat API",
-        description="Scalable chat API with LLM-based advisory tools",
+        title="Wikipedia Q&A API",
+        description="Wikipedia-based Q&A system with LLM reranking and intelligent search",
         version="2.0.0"
     )
 
