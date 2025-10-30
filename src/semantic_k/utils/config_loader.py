@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -23,7 +23,7 @@ class ModelConfig(BaseModel):
 
 
 class RoutingRule(BaseModel):
-    """Routing rule configuration."""
+    """Routing rule configuration (legacy keyword-based)."""
 
     name: str
     keywords: list[str]
@@ -31,10 +31,33 @@ class RoutingRule(BaseModel):
 
 
 class RoutingConfig(BaseModel):
-    """Routing configuration."""
+    """Routing configuration (legacy keyword-based)."""
 
     rules: list[RoutingRule]
     fallback_model: str
+
+
+class RouterConfig(BaseModel):
+    """Router configuration for topic classification and security."""
+
+    classifier_prompt: str
+    security_advisor_prompt: str
+    topics: list[str]
+
+
+class RoutingStrategy(BaseModel):
+    """Routing strategy - maps topic to system prompt."""
+
+    name: str
+    system_prompt: str
+    preferred_model: str
+
+
+class SystemPrompt(BaseModel):
+    """System prompt definition."""
+
+    name: str
+    value: str
 
 
 class LoggingConfig(BaseModel):
@@ -50,7 +73,10 @@ class Config(BaseModel):
 
     default_model: str
     models: Dict[str, ModelConfig]
-    routing: RoutingConfig
+    router: Optional[RouterConfig] = None
+    routing_strategies: Optional[list[RoutingStrategy]] = None
+    system_prompts: Optional[list[SystemPrompt]] = None
+    routing: RoutingConfig  # Legacy keyword-based routing
     logging: LoggingConfig
 
 
@@ -163,3 +189,91 @@ class ConfigLoader:
         if self._config is None:
             self.load()
         return self._config
+
+    def get_system_prompt(self, prompt_name: str) -> Optional[str]:
+        """Get system prompt by name.
+
+        Args:
+            prompt_name: Name of the prompt to retrieve.
+
+        Returns:
+            Prompt value or None if not found.
+        """
+        if self._config is None:
+            self.load()
+
+        if not self._config.system_prompts:
+            return None
+
+        for prompt in self._config.system_prompts:
+            if prompt.name == prompt_name:
+                return prompt.value
+
+        return None
+
+    def get_routing_strategy(self, topic: str) -> Optional[RoutingStrategy]:
+        """Get routing strategy for a topic.
+
+        Args:
+            topic: Topic name.
+
+        Returns:
+            Routing strategy or None if not found.
+        """
+        if self._config is None:
+            self.load()
+
+        if not self._config.routing_strategies:
+            return None
+
+        for strategy in self._config.routing_strategies:
+            if strategy.name == topic:
+                return strategy
+
+        return None
+
+    def get_classifier_prompt(self) -> Optional[str]:
+        """Get topic classifier prompt.
+
+        Returns:
+            Classifier prompt name or None.
+        """
+        if self._config is None:
+            self.load()
+
+        if self._config.router:
+            return self._config.router.classifier_prompt
+
+        return None
+
+    def get_security_advisor_prompt(self) -> Optional[str]:
+        """Get security advisor prompt.
+
+        Returns:
+            Security advisor prompt name or None.
+        """
+        if self._config is None:
+            self.load()
+
+        if self._config.router:
+            return self._config.router.security_advisor_prompt
+
+        return None
+
+    def get_available_topics(self) -> List[str]:
+        """Get list of available topics from router config.
+
+        Returns:
+            List of topic names.
+        """
+        if self._config is None:
+            self.load()
+
+        if self._config.router:
+            return self._config.router.topics
+
+        # Fallback to legacy routing rules
+        if self._config.routing:
+            return [rule.name for rule in self._config.routing.rules]
+
+        return []
