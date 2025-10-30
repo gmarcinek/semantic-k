@@ -6,9 +6,11 @@ Uses GPT-4o mini to rerank Wikipedia search results based on relevance to user q
 from typing import List, Dict, Optional
 import logging
 from app.services.llm_service import LLMService
+from app.utils.colored_logger import get_plugin_logger
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
+plugin_logger = get_plugin_logger(__name__, 'reranker')
 
 
 class RankedResult(BaseModel):
@@ -109,7 +111,15 @@ class RerankerService:
 
             # Sort by relevance score (descending) and return top_n
             ranked_results.sort(key=lambda x: x.relevance_score, reverse=True)
-            return ranked_results[:top_n]
+            top_results = ranked_results[:top_n]
+
+            # Log reranking results
+            plugin_logger.info(f"🔄 Reranked {len(search_results)} results, returning top {len(top_results)}:")
+            for i, result in enumerate(top_results, 1):
+                plugin_logger.info(f"  [{i}] {result.title} (score: {result.relevance_score:.2f})")
+                plugin_logger.info(f"      💡 {result.reasoning}")
+
+            return top_results
 
         except Exception as e:
             logger.error(f"Reranking error: {e}")

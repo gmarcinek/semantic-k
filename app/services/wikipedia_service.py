@@ -6,8 +6,10 @@ Handles Wikipedia search, article retrieval, and content extraction
 import aiohttp
 from typing import List, Dict, Optional
 import logging
+from app.utils.colored_logger import get_plugin_logger
 
 logger = logging.getLogger(__name__)
+plugin_logger = get_plugin_logger(__name__, 'wikipedia')
 
 
 class WikipediaService:
@@ -63,6 +65,14 @@ class WikipediaService:
                                 "snippet": self._clean_html(item.get("snippet", "")),
                                 "pageid": item["pageid"]
                             })
+
+                        # Log Wikipedia search results
+                        plugin_logger.info(f"📚 Wikipedia search returned {len(results)} results for query: '{query}'")
+                        for i, result in enumerate(results[:3], 1):  # Show first 3
+                            plugin_logger.info(f"  [{i}] {result['title']} (pageid: {result['pageid']})")
+                        if len(results) > 3:
+                            plugin_logger.info(f"  ... and {len(results) - 3} more results")
+
                         return results
                     return []
         except Exception as e:
@@ -209,6 +219,15 @@ class WikipediaService:
                                     "url": page.get("fullurl", ""),
                                     "pageid": page.get("pageid", "")
                                 })
+
+                        # Log fetched articles
+                        plugin_logger.info(f"📖 Wikipedia fetched {len(results)} full articles:")
+                        for article in results:
+                            extract_preview = article['extract'][:100] + "..." if len(article['extract']) > 100 else article['extract']
+                            plugin_logger.info(f"  📄 {article['title']}")
+                            plugin_logger.info(f"     {extract_preview}")
+                            plugin_logger.info(f"     🔗 {article['url']}")
+
                         return results
                     return []
         except Exception as e:

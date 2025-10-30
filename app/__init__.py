@@ -16,12 +16,13 @@ from app.services import (
 )
 from app.services.wikipedia_service import WikipediaService
 from app.services.reranker_service import RerankerService
+from app.utils.colored_logger import setup_colored_logging
 
 # Load environment variables
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure colored logging
+setup_colored_logging(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
