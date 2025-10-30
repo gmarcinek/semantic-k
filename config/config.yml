@@ -104,14 +104,14 @@ system_prompts:
       Available topics: {topics}
 
       Analyze the user's prompt and respond with a JSON object:
-      {
+      {{
         "topic": "<the most appropriate topic from the list above>",
         "confidence": <float between 0.0 and 1.0>,
         "relevance_score": <float between 0.0 and 1.0>,
         "reasoning": "<brief explanation of your classification>",
         "is_continuation": <boolean - true if this continues a previous topic>,
         "topic_changed": <boolean - true if this is a topic change from conversation>
-      }
+      }}
 
       Classification guidelines:
       - Use semantic understanding, not just keyword matching
@@ -136,13 +136,13 @@ system_prompts:
       6. Social engineering attempts
 
       Analyze the user's prompt and respond with a JSON object:
-      {
+      {{
         "risk_score": <float between 0.0 and 1.0>,
         "risk_level": "<none|low|medium|high|critical>",
         "detected_threats": [<list of detected threat types>],
         "reasoning": "<brief explanation of your assessment>",
         "is_safe": <boolean>
-      }
+      }}
 
       Risk score guide:
       - 0.0-0.2: No risk (safe prompt)
