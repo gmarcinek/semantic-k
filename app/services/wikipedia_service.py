@@ -54,6 +54,8 @@ class WikipediaService:
             "srsearch": query,
             "srlimit": limit,
             "srprop": "snippet|titlesnippet",
+            "srnamespace": 0,
+            "srenablerewrites": 1,
             "format": "json",
             "utf8": 1
         }
@@ -118,6 +120,8 @@ class WikipediaService:
             "titles": title,
             "exchars": extract_length,
             "explaintext": 1,
+            "redirects": 1,
+            "exintro": 1,
             "inprop": "url",
             "format": "json",
             "utf8": 1
@@ -144,12 +148,20 @@ class WikipediaService:
                         page = next(iter(pages.values()))
 
                         if "missing" not in page:
-                            return {
+                            result = {
                                 "title": page.get("title", ""),
                                 "extract": page.get("extract", ""),
                                 "url": page.get("fullurl", ""),
                                 "pageid": page.get("pageid", "")
                             }
+                            # Fallback to REST summary if extract empty
+                            if not result["extract"]:
+                                summary = await self._fetch_summary_by_title(result["title"])
+                                if summary:
+                                    result["extract"] = summary.get("extract", result["extract"])
+                                    if not result["url"]:
+                                        result["url"] = summary.get("url", result["url"])
+                            return result
                     return None
         except Exception as e:
             logger.error(f"Wikipedia article retrieval error: {e}")
@@ -176,6 +188,8 @@ class WikipediaService:
             "pageids": pageid,
             "exchars": extract_length,
             "explaintext": 1,
+            "redirects": 1,
+            "exintro": 1,
             "inprop": "url",
             "format": "json",
             "utf8": 1
@@ -202,12 +216,19 @@ class WikipediaService:
                         page = next(iter(pages.values()))
 
                         if "missing" not in page:
-                            return {
+                            result = {
                                 "title": page.get("title", ""),
                                 "extract": page.get("extract", ""),
                                 "url": page.get("fullurl", ""),
                                 "pageid": page.get("pageid", "")
                             }
+                            if not result["extract"]:
+                                summary = await self._fetch_summary_by_title(result["title"])
+                                if summary:
+                                    result["extract"] = summary.get("extract", result["extract"])
+                                    if not result["url"]:
+                                        result["url"] = summary.get("url", result["url"])
+                            return result
                     return None
         except Exception as e:
             logger.error(f"Wikipedia article retrieval error: {e}")
@@ -237,6 +258,8 @@ class WikipediaService:
             "pageids": "|".join(map(str, pageids)),
             "exchars": extract_length,
             "explaintext": 1,
+            "redirects": 1,
+            "exintro": 1,
             "inprop": "url",
             "format": "json",
             "utf8": 1
@@ -271,6 +294,15 @@ class WikipediaService:
                                     "pageid": page.get("pageid", "")
                                 })
 
+                        # Fallback to REST summary for any empty extracts
+                        for i, article in enumerate(results):
+                            if not article.get("extract") and article.get("title"):
+                                summary = await self._fetch_summary_by_title(article["title"])
+                                if summary:
+                                    article["extract"] = summary.get("extract", "")
+                                    if not article.get("url"):
+                                        article["url"] = summary.get("url", "")
+
                         # Log fetched articles
                         plugin_logger.info(f"📖 Wikipedia fetched {len(results)} full articles:")
                         for article in results:
@@ -279,7 +311,19 @@ class WikipediaService:
                             plugin_logger.info(f"     {extract_preview}")
                             plugin_logger.info(f"     🔗 {article['url']}")
 
-                        return results
+                        # Preserve the order of input pageids where possible
+                        by_id = {int(a["pageid"]): a for a in results if a.get("pageid") is not None}
+                        ordered = [by_id[pid] for pid in map(int, params["pageids"].split("|")) if pid in by_id]
+
+                        # Log fetched articles
+                        plugin_logger.info(f"📖 Wikipedia fetched {len(ordered)} full articles:")
+                        for article in ordered:
+                            extract_preview = article['extract'][:100] + "..." if len(article['extract']) > 100 else article['extract']
+                            plugin_logger.info(f"  📄 {article['title']}")
+                            plugin_logger.info(f"     {extract_preview}")
+                            plugin_logger.info(f"     🔗 {article['url']}")
+
+                        return ordered
                     return []
         except Exception as e:
             logger.error(f"Wikipedia multiple articles retrieval error: {e}")
@@ -299,3 +343,30 @@ class WikipediaService:
         import re
         clean = re.compile('<.*?>')
         return re.sub(clean, '', text)
+
+    async def _fetch_summary_by_title(self, title: str) -> Optional[Dict[str, str]]:
+        """Fallback: fetch article summary via REST API page/summary.
+
+        More robust for short extracts and redirects.
+        """
+        import urllib.parse
+        title_enc = urllib.parse.quote(title)
+        url = f"https://{self.language}.wikipedia.org/api/rest_v1/page/summary/{title_enc}"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=self._headers) as resp:
+                    if resp.status != 200:
+                        return None
+                    content_type = resp.headers.get("Content-Type", "").lower()
+                    if "application/json" not in content_type:
+                        return None
+                    data = await resp.json()
+                    extract = data.get("extract") or data.get("description") or ""
+                    page_url = (
+                        data.get("content_urls", {})
+                        .get("desktop", {})
+                        .get("page", "")
+                    )
+                    return {"extract": extract, "url": page_url}
+        except Exception:
+            return None

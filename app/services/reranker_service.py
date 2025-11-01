@@ -63,41 +63,23 @@ class RerankerService:
         reranking_prompt = self._create_reranking_prompt(query, results_text)
 
         try:
-            # Call LLM to evaluate relevance
+            # Call LLM to evaluate relevance using structured completion
+            messages = [
+                {"role": "system", "content": (
+                    "You are an expert at evaluating Wikipedia search result relevance. "
+                    "Respond ONLY with a valid JSON object matching the requested fields."
+                )},
+                {"role": "user", "content": reranking_prompt}
+            ]
+
             response = await self.llm_service.generate_structured_completion(
-                prompt=reranking_prompt,
+                messages=messages,
                 model_config={
                     "provider": "openai",
                     "model_id": model,
                     "api_key_env": "OPENAI_API_KEY"
                 },
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "reranking_result",
-                        "strict": True,
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "ranked_results": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "pageid": {"type": "number"},
-                                            "relevance_score": {"type": "number"},
-                                            "reasoning": {"type": "string"}
-                                        },
-                                        "required": ["pageid", "relevance_score", "reasoning"],
-                                        "additionalProperties": False
-                                    }
-                                }
-                            },
-                            "required": ["ranked_results"],
-                            "additionalProperties": False
-                        }
-                    }
-                }
+                temperature=0.2
             )
 
             # Parse LLM response
@@ -186,7 +168,7 @@ Consider:
 - Whether the result provides direct information or tangential information
 - Topic alignment and specificity
 
-Return a JSON array with rankings for ALL results provided above."""
+Return a JSON object with the key "ranked_results" containing ALL results provided above, each as an object with fields: pageid (number), relevance_score (number between 0 and 1), reasoning (string)."""
 
     def _merge_scores_with_results(
         self,

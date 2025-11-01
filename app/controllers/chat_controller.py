@@ -82,90 +82,41 @@ class ChatController:
                 f"Generating response: topic={metadata.topic}, model={model_name}"
             )
 
-            # Get conversation context
-            context = self.session_service.get_conversation_context(session_id)
+            # Get full conversation context for LLM (use entire history)
+            history_len = len(chat_history) if chat_history else 0
+            context = self.session_service.get_conversation_context(session_id, limit=history_len)
 
             # Wikipedia search and reranking
             wikipedia_metadata = None
             enhanced_prompt = prompt
 
             if metadata.topic == "GENERAL_KNOWLEDGE":
-                # Build smart search candidates from the user's prompt
-                candidates = SearchQueryBuilder.build_candidates(prompt)
-                logger.info(f"Searching Wikipedia for candidates: {candidates}")
+                # Inspect chat history for previous Wikipedia metadata and topic
+                last_wiki = None
+                last_topic = None
+                if chat_history:
+                    for msg in reversed(chat_history):
+                        md = msg.get('metadata') or {}
+                        if not last_wiki and isinstance(md.get('wikipedia'), dict) and md['wikipedia'].get('sources'):
+                            last_wiki = md['wikipedia']
+                        if not last_topic and md.get('topic'):
+                            last_topic = md['topic']
+                        if last_wiki and last_topic:
+                            break
 
-                # Get Wikipedia configuration
-                wiki_config = self.config_service.config.get("wikipedia", {})
-                search_config = wiki_config.get("search", {})
-                reranking_config = wiki_config.get("reranking", {})
+                # Decide on continuation and topic change more robustly
+                is_continuation = metadata.is_continuation >= 0.5
+                classifier_topic_changed = metadata.topic_change > 0.5
+                history_topic_changed = (last_topic is not None and last_topic != metadata.topic)
+                topic_changed = classifier_topic_changed or history_topic_changed
 
-                # Search Wikipedia with candidates in current language
-                search_results = []
-                used_query = None
-                for q in candidates:
-                    results_try = await self.wikipedia_service.search(
-                        query=q,
-                        limit=search_config.get("max_results", 10)
-                    )
-                    if results_try:
-                        search_results = results_try
-                        used_query = q
-                        break
+                if last_wiki and is_continuation and not topic_changed:
+                    # Reuse previous Wikipedia sources without re-searching
+                    logger.info("Reusing previous Wikipedia sources for context (continuation detected)")
+                    articles = last_wiki.get('sources', [])
 
-                # If no results and likely a different language, try alternate language
-                if not search_results:
-                    likely_lang = SearchQueryBuilder.detect_language(prompt, default=wiki_config.get("language", "en"))
-                    current_lang = wiki_config.get("language", "en")
-                    if likely_lang and likely_lang != current_lang:
-                        from app.services.wikipedia_service import WikipediaService
-                        alt_service = WikipediaService(language=likely_lang)
-                        for q in candidates:
-                            results_try = await alt_service.search(
-                                query=q,
-                                limit=search_config.get("max_results", 10)
-                            )
-                            if results_try:
-                                search_results = results_try
-                                used_query = q
-                                # Replace service so subsequent calls use the right language
-                                self.wikipedia_service = alt_service
-                                break
-
-                if search_results:
-                    # Rerank results if enabled
-                    if reranking_config.get("enabled", True):
-                        logger.info("Reranking Wikipedia results")
-                        ranked_results = await self.reranker_service.rerank_results(
-                            query=prompt,
-                            search_results=search_results,
-                            top_n=reranking_config.get("top_n", 5),
-                            model=reranking_config.get("model", "gpt-4o-mini")
-                        )
-                    else:
-                        # Use original ranking
-                        from app.services.reranker_service import RankedResult
-                        ranked_results = [
-                            RankedResult(
-                                pageid=r.get("pageid", 0),
-                                title=r.get("title", ""),
-                                snippet=r.get("snippet", ""),
-                                relevance_score=1.0 - (i * 0.1),
-                                reasoning="Original ranking"
-                            )
-                            for i, r in enumerate(search_results[:reranking_config.get("top_n", 5)])
-                        ]
-
-                    # Get full article content for top results
-                    pageids = [r.pageid for r in ranked_results]
-                    articles = await self.wikipedia_service.get_multiple_articles(
-                        pageids=pageids,
-                        extract_length=search_config.get("extract_length", 500)
-                    )
-
-                    # Build Wikipedia context
+                    # Build context and enhanced prompt
                     wiki_context = self._build_wikipedia_context(articles)
-
-                    # Enhance prompt with Wikipedia content
                     enhanced_prompt = f"""User Question: {prompt}
 
 Wikipedia Information:
@@ -173,39 +124,148 @@ Wikipedia Information:
 
 Please answer the user's question based ONLY on the Wikipedia information provided above. Include citations to the article titles."""
 
-                    # Build Wikipedia metadata
-                    sources = [
-                        WikipediaSource(
-                            title=article.get("title", ""),
-                            url=article.get("url", ""),
-                            pageid=article.get("pageid", 0),
-                            extract=article.get("extract", ""),
-                            relevance_score=next(
-                                (r.relevance_score for r in ranked_results if r.pageid == article.get("pageid")),
-                                None
-                            )
-                        )
-                        for article in articles
-                    ]
-
-                    wikipedia_metadata = WikipediaMetadata(
-                        query=used_query or prompt,
-                        sources=sources,
-                        total_results=len(search_results),
-                        reranked=reranking_config.get("enabled", True),
-                        reranking_model=reranking_config.get("model", "gpt-4o-mini") if reranking_config.get("enabled", True) else None
-                    )
-
-                    # Send Wikipedia metadata to client
+                    # Prepare and emit previous metadata for client visibility
+                    wikipedia_metadata = WikipediaMetadata.model_validate(last_wiki)
                     yield self._format_sse('wikipedia', wikipedia_metadata.model_dump())
-
-                    logger.info(f"Wikipedia search complete: {len(articles)} articles retrieved")
                 else:
-                    logger.info("No Wikipedia results found for any candidate")
-                    enhanced_prompt = (
-                        f"{prompt}\n\nNote: No relevant Wikipedia articles were found for related queries: "
-                        f"{', '.join(candidates)}."
-                    )
+                    # Build smart search candidates from the user's prompt
+                    candidates = SearchQueryBuilder.build_candidates(prompt)
+
+                    # Only seed with previous queries/titles if topic didn't change
+                    if last_wiki and not topic_changed:
+                        prior_titles = [s.get('title') for s in last_wiki.get('sources', []) if s.get('title')]
+                        prior_query = last_wiki.get('query')
+                        seed = []
+                        if prior_query:
+                            seed.append(prior_query)
+                        seed.extend(prior_titles[:3])
+                        # Deduplicate preserving order, with seed first
+                        seen = set()
+                        merged = []
+                        for q in seed + candidates:
+                            if q and q not in seen:
+                                merged.append(q)
+                                seen.add(q)
+                        candidates = merged
+
+                    logger.info(f"Searching Wikipedia for candidates: {candidates}")
+
+                    # Get Wikipedia configuration
+                    wiki_config = self.config_service.config.get("wikipedia", {})
+                    search_config = wiki_config.get("search", {})
+                    reranking_config = wiki_config.get("reranking", {})
+
+                    # Search Wikipedia with candidates in current language
+                    search_results = []
+                    used_query = None
+                    for q in candidates:
+                        results_try = await self.wikipedia_service.search(
+                            query=q,
+                            limit=search_config.get("max_results", 10)
+                        )
+                        if results_try:
+                            search_results = results_try
+                            used_query = q
+                            break
+
+                    # If no results and likely a different language, try alternate language
+                    if not search_results:
+                        likely_lang = SearchQueryBuilder.detect_language(prompt, default=wiki_config.get("language", "en"))
+                        current_lang = wiki_config.get("language", "en")
+                        if likely_lang and likely_lang != current_lang:
+                            from app.services.wikipedia_service import WikipediaService
+                            alt_service = WikipediaService(language=likely_lang)
+                            for q in candidates:
+                                results_try = await alt_service.search(
+                                    query=q,
+                                    limit=search_config.get("max_results", 10)
+                                )
+                                if results_try:
+                                    search_results = results_try
+                                    used_query = q
+                                    # Replace service so subsequent calls use the right language
+                                    self.wikipedia_service = alt_service
+                                    break
+
+                    if search_results:
+                        # Rerank results if enabled
+                        if reranking_config.get("enabled", True):
+                            logger.info("Reranking Wikipedia results")
+                            ranked_results = await self.reranker_service.rerank_results(
+                                query=used_query or prompt,
+                                search_results=search_results,
+                                top_n=reranking_config.get("top_n", 5),
+                                model=reranking_config.get("model", "gpt-4o-mini")
+                            )
+                        else:
+                            # Use original ranking
+                            from app.services.reranker_service import RankedResult
+                            ranked_results = [
+                                RankedResult(
+                                    pageid=r.get("pageid", 0),
+                                    title=r.get("title", ""),
+                                    snippet=r.get("snippet", ""),
+                                    relevance_score=1.0 - (i * 0.1),
+                                    reasoning="Original ranking"
+                                )
+                                for i, r in enumerate(search_results[:reranking_config.get("top_n", 5)])
+                            ]
+
+                        # Get full article content for top results
+                        pageids = [r.pageid for r in ranked_results]
+                        articles = await self.wikipedia_service.get_multiple_articles(
+                            pageids=pageids,
+                            extract_length=search_config.get("extract_length", 500)
+                        )
+
+                        # Sort articles by reranked relevance (desc)
+                        score_lookup = {r.pageid: r.relevance_score for r in ranked_results}
+                        articles.sort(key=lambda a: score_lookup.get(a.get("pageid"), 0), reverse=True)
+
+                        # Build Wikipedia context
+                        wiki_context = self._build_wikipedia_context(articles)
+
+                        # Enhance prompt with Wikipedia content
+                        enhanced_prompt = f"""User Question: {prompt}
+
+Wikipedia Information:
+{wiki_context}
+
+Please answer the user's question based ONLY on the Wikipedia information provided above. Include citations to the article titles."""
+
+                        # Build Wikipedia metadata
+                        sources = []
+                        for article in articles:
+                            pid = article.get("pageid")
+                            rel = score_lookup.get(pid)
+                            sources.append(
+                                WikipediaSource(
+                                    title=article.get("title", ""),
+                                    url=article.get("url", ""),
+                                    pageid=pid or 0,
+                                    extract=article.get("extract", ""),
+                                    relevance_score=rel
+                                )
+                            )
+
+                        wikipedia_metadata = WikipediaMetadata(
+                            query=used_query or prompt,
+                            sources=sources,
+                            total_results=len(search_results),
+                            reranked=reranking_config.get("enabled", True),
+                            reranking_model=reranking_config.get("model", "gpt-4o-mini") if reranking_config.get("enabled", True) else None
+                        )
+
+                        # Send Wikipedia metadata to client
+                        yield self._format_sse('wikipedia', wikipedia_metadata.model_dump())
+
+                        logger.info(f"Wikipedia search complete: {len(articles)} articles retrieved")
+                    else:
+                        logger.info("No Wikipedia results found for any candidate")
+                        enhanced_prompt = (
+                            f"{prompt}\n\nNote: No relevant Wikipedia articles were found for related queries: "
+                            f"{', '.join(candidates)}."
+                        )
 
             # Generate response
             response_text = await self.llm_service.generate_chat_response(
