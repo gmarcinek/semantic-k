@@ -8,13 +8,23 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.controllers import ChatController, ConfigController
+from app.controllers import (
+    ChatController,
+    ConfigController,
+    SessionController,
+    WikipediaResearchController,
+)
 from app.router import create_router
 from app.services import (
     ClassificationService,
     ConfigService,
     LLMService,
     SessionService,
+    SSEFormatterService,
+    WikipediaSearchService,
+    ResponseStrategyService,
+    ContextBuilderService,
+    ChatOrchestrationService,
 )
 from app.services.wikipedia_service import WikipediaService
 from app.services.reranker_service import RerankerService
@@ -54,18 +64,52 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     query_refiner_service = QueryRefinerService(llm_service, config_service)
     wikipedia_intent_service = WikipediaIntentService(llm_service, config_service)
 
-    # Initialize controllers
-    logger.info("Initializing controllers...")
+    # Initialize new specialized services
+    logger.info("Initializing specialized services...")
 
-    chat_controller = ChatController(
+    sse_formatter_service = SSEFormatterService()
+    response_strategy_service = ResponseStrategyService(config_service)
+    context_builder_service = ContextBuilderService(session_service)
+
+    wikipedia_search_service = WikipediaSearchService(
+        wikipedia_service=wikipedia_service,
+        reranker_service=reranker_service,
+        config_service=config_service,
+        wikipedia_intent_service=wikipedia_intent_service
+    )
+
+    chat_orchestration_service = ChatOrchestrationService(
         session_service=session_service,
         classification_service=classification_service,
         llm_service=llm_service,
         config_service=config_service,
+        wikipedia_search_service=wikipedia_search_service,
+        response_strategy_service=response_strategy_service,
+        context_builder_service=context_builder_service,
+        sse_formatter_service=sse_formatter_service,
+        query_refiner_service=query_refiner_service
+    )
+
+    # Initialize controllers
+    logger.info("Initializing controllers...")
+
+    session_controller = SessionController(session_service=session_service)
+
+    wikipedia_research_controller = WikipediaResearchController(
+        session_service=session_service,
+        config_service=config_service,
+        llm_service=llm_service,
         wikipedia_service=wikipedia_service,
-        reranker_service=reranker_service,
-        query_refiner_service=query_refiner_service,
-        wikipedia_intent_service=wikipedia_intent_service
+        sse_formatter_service=sse_formatter_service,
+        wikipedia_search_service=wikipedia_search_service,
+        context_builder_service=context_builder_service
+    )
+
+    chat_controller = ChatController(
+        session_service=session_service,
+        chat_orchestration_service=chat_orchestration_service,
+        wikipedia_research_controller=wikipedia_research_controller,
+        session_controller=session_controller
     )
 
     config_controller = ConfigController(config_service=config_service)
