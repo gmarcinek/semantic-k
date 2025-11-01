@@ -1,4 +1,3 @@
-"""Wikipedia search and orchestration service."""
 import logging
 import re
 from typing import Dict, List, Optional, Tuple
@@ -8,9 +7,7 @@ from app.services.reranker_service import RankedResult
 
 logger = logging.getLogger(__name__)
 
-
 class WikipediaSearchService:
-    """Service for Wikipedia search operations."""
 
     def __init__(
         self,
@@ -19,28 +16,14 @@ class WikipediaSearchService:
         config_service,
         wikipedia_intent_service=None
     ):
-        """Initialize Wikipedia search service.
 
-        Args:
-            wikipedia_service: Wikipedia API service
-            reranker_service: Wikipedia reranker service
-            config_service: Configuration service
-            wikipedia_intent_service: Optional Wikipedia intent service
-        """
         self.wikipedia_service = wikipedia_service
         self.reranker_service = reranker_service
         self.config_service = config_service
         self.wikipedia_intent_service = wikipedia_intent_service
 
     def extract_wikipedia_queries(self, response: str) -> List[str]:
-        """Extract Wikipedia search queries from LLM response.
 
-        Args:
-            response: LLM response text
-
-        Returns:
-            List of extracted search queries
-        """
         pattern = r'\[WIKIPEDIA_SEARCH:\s*([^\]]+)\]'
         matches = re.findall(pattern, response or "")
         return [m.strip() for m in matches if m and m.strip()]
@@ -51,16 +34,7 @@ class WikipediaSearchService:
         original_prompt: str,
         chat_history: Optional[List[Dict]] = None,
     ) -> Tuple[Optional[str], Optional[WikipediaMetadata]]:
-        """Execute Wikipedia search with intent-aware post-processing.
 
-        Args:
-            queries: List of search queries
-            original_prompt: Original user prompt
-            chat_history: Optional chat history
-
-        Returns:
-            Tuple of (wiki_context, wikipedia_metadata)
-        """
         wiki_cfg = self.config_service.config.get('wikipedia', {})
         rerank_cfg = wiki_cfg.get('reranking', {})
         search_cfg = wiki_cfg.get('search', {})
@@ -75,7 +49,6 @@ class WikipediaSearchService:
         seen_pageids = set()
         seen_titles = set()
 
-        # Search Wikipedia with multiple queries
         for query in queries[:3]:
             search_results = await self.wikipedia_service.search(query=query, limit=per_query_limit)
             if not search_results:
@@ -103,7 +76,6 @@ class WikipediaSearchService:
         if not combined_results:
             return None, None
 
-        # Rerank results
         if rerank_cfg.get('enabled', True):
             ranked_results: List[RankedResult] = await self.reranker_service.rerank_results(
                 query=original_prompt,
@@ -126,14 +98,12 @@ class WikipediaSearchService:
         if not ranked_results:
             return None, None
 
-        # Analyze intent
         intent_result = await self._analyze_intent(
             original_prompt,
             ranked_results,
             chat_history
         )
 
-        # Match topics to candidates
         primary_candidate = self._match_topic(intent_result.primary, ranked_results) if intent_result else None
         if not primary_candidate and ranked_results:
             primary_candidate = ranked_results[0]
@@ -148,7 +118,6 @@ class WikipediaSearchService:
         if not primary_candidate:
             return None, None
 
-        # Resolve context topics
         resolved_context_pairs = self._resolve_context_topics(
             intent_result,
             ranked_results,
@@ -156,7 +125,6 @@ class WikipediaSearchService:
             max_total
         )
 
-        # Fetch articles
         sources, articles = await self._fetch_articles(
             primary_candidate,
             resolved_context_pairs,
@@ -164,10 +132,8 @@ class WikipediaSearchService:
             max_total
         )
 
-        # Build context
         wiki_context = self.build_wikipedia_context(articles)
 
-        # Build metadata
         metadata = WikipediaMetadata(
             query=", ".join(queries[:3]),
             sources=sources,
@@ -188,16 +154,7 @@ class WikipediaSearchService:
         candidates: List[RankedResult],
         chat_history: Optional[List[Dict]] = None
     ) -> WikipediaIntentResult:
-        """Analyze intent using Wikipedia intent service.
 
-        Args:
-            prompt: User prompt
-            candidates: List of ranked candidates
-            chat_history: Optional chat history
-
-        Returns:
-            WikipediaIntentResult
-        """
         if self.wikipedia_intent_service:
             return await self.wikipedia_intent_service.analyze(
                 prompt=prompt,
@@ -226,15 +183,7 @@ class WikipediaSearchService:
         topic: Optional[WikipediaIntentTopic],
         candidates: List[RankedResult]
     ) -> Optional[RankedResult]:
-        """Match a topic to a candidate.
 
-        Args:
-            topic: Topic to match
-            candidates: List of candidates
-
-        Returns:
-            Matched candidate or None
-        """
         if not topic:
             return None
         if topic.pageid is not None:
@@ -255,17 +204,7 @@ class WikipediaSearchService:
         primary_candidate: RankedResult,
         max_total: int
     ) -> List[Tuple[WikipediaIntentTopic, RankedResult]]:
-        """Resolve context topics to candidates.
 
-        Args:
-            intent_result: Intent analysis result
-            ranked_results: List of ranked results
-            primary_candidate: Primary candidate
-            max_total: Maximum total results
-
-        Returns:
-            List of (topic, candidate) pairs
-        """
         resolved_context_pairs: List[Tuple[WikipediaIntentTopic, RankedResult]] = []
         context_capacity = max_total - 1
         seen_context_pageids = {primary_candidate.pageid}
@@ -284,7 +223,6 @@ class WikipediaSearchService:
                     topic.pageid = candidate.pageid
                 resolved_context_pairs.append((topic, candidate))
 
-        # Fill remaining capacity with top-ranked results
         if context_capacity > len(resolved_context_pairs):
             for candidate in ranked_results:
                 if candidate.pageid in seen_context_pageids:
@@ -310,21 +248,10 @@ class WikipediaSearchService:
         extract_length: int,
         max_total: int
     ) -> Tuple[List[WikipediaSource], List[Dict]]:
-        """Fetch Wikipedia articles for primary and context topics.
 
-        Args:
-            primary_candidate: Primary candidate
-            resolved_context_pairs: List of context (topic, candidate) pairs
-            extract_length: Maximum extract length
-            max_total: Maximum total results
-
-        Returns:
-            Tuple of (sources, articles)
-        """
         sources: List[WikipediaSource] = []
         articles: List[Dict] = []
 
-        # Fetch primary article
         primary_article = await self._fetch_primary_article(primary_candidate, extract_length)
         articles.append(primary_article)
         sources.append(WikipediaSource(
@@ -337,7 +264,6 @@ class WikipediaSearchService:
             images=primary_article.get("images", []),
         ))
 
-        # Fetch context articles
         for topic, candidate in resolved_context_pairs:
             if len(articles) >= max_total:
                 break
@@ -370,15 +296,7 @@ class WikipediaSearchService:
         primary_candidate: RankedResult,
         extract_length: int
     ) -> Dict:
-        """Fetch the primary Wikipedia article.
 
-        Args:
-            primary_candidate: Primary candidate
-            extract_length: Maximum extract length
-
-        Returns:
-            Article dict
-        """
         primary_article = None
         try:
             if primary_candidate.pageid:
@@ -426,14 +344,7 @@ class WikipediaSearchService:
         return primary_article
 
     def build_wikipedia_context(self, articles: List[Dict]) -> str:
-        """Build Wikipedia context from articles.
 
-        Args:
-            articles: List of Wikipedia articles
-
-        Returns:
-            Formatted Wikipedia context string
-        """
         context_parts = []
         for i, article in enumerate(articles, 1):
             title = article.get("title", "Unknown")
@@ -453,14 +364,7 @@ class WikipediaSearchService:
         return "\n".join(context_parts)
 
     def build_wiki_url(self, pageid: Optional[int]) -> str:
-        """Construct a canonical Wikipedia URL for a page ID.
 
-        Args:
-            pageid: Wikipedia page ID
-
-        Returns:
-            Wikipedia URL
-        """
         if not pageid:
             return ""
         language = getattr(self.wikipedia_service, "language", "pl")

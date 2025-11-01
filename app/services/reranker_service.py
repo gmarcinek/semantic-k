@@ -73,9 +73,32 @@ class RerankerService:
                 ranked_data
             )
 
+            if not ranked_results:
+                return []
+
+            # Drop candidates below the average relevance score
+            scores = [result.relevance_score for result in ranked_results]
+            average_score = sum(scores) / len(scores) if scores else 0.0
+            filtered_results = [
+                result for result in ranked_results
+                if result.relevance_score >= average_score
+            ]
+
+            if not filtered_results and ranked_results:
+                # Keep at least the strongest candidate if all fell below average
+                strongest = max(ranked_results, key=lambda x: x.relevance_score)
+                filtered_results = [strongest]
+
+            plugin_logger.debug(
+                "Filtered reranked results using average score %.3f (kept %d of %d).",
+                average_score,
+                len(filtered_results),
+                len(ranked_results)
+            )
+
             # Sort by relevance score (descending) and return top_n
-            ranked_results.sort(key=lambda x: x.relevance_score, reverse=True)
-            top_results = ranked_results[:top_n]
+            filtered_results.sort(key=lambda x: x.relevance_score, reverse=True)
+            top_results = filtered_results[:top_n]
 
             # Log reranking results
             plugin_logger.info(f"🔄 Reranked {len(search_results)} results, returning top {len(top_results)}:")
@@ -153,7 +176,7 @@ Return a JSON object with the key "ranked_results" containing ALL results provid
             pageid = result.get("pageid", 0)
             score_data = score_lookup.get(
                 pageid,
-                {"relevance_score": 0.5, "reasoning": "No score provided"}
+                {"relevance_score": 0.0, "reasoning": "No score provided"}
             )
 
             ranked.append(RankedResult(
