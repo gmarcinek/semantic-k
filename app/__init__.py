@@ -16,6 +16,7 @@ from app.services import (
 )
 from app.services.wikipedia_service import WikipediaService
 from app.services.reranker_service import RerankerService
+from app.services.query_refiner_service import QueryRefinerService
 from app.utils.colored_logger import setup_colored_logging
 
 # Load environment variables
@@ -42,6 +43,7 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     session_service = SessionService()
     llm_service = LLMService()
     classification_service = ClassificationService(llm_service, config_service)
+    query_refiner_service = QueryRefinerService(llm_service, config_service)
 
     # Initialize Wikipedia services
     wiki_config = config_service.config.get("wikipedia", {})
@@ -57,7 +59,8 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         llm_service=llm_service,
         config_service=config_service,
         wikipedia_service=wikipedia_service,
-        reranker_service=reranker_service
+        reranker_service=reranker_service,
+        query_refiner_service=query_refiner_service
     )
 
     config_controller = ConfigController(config_service=config_service)

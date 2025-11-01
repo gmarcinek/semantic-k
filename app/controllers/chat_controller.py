@@ -21,7 +21,8 @@ class ChatController:
         llm_service,
         config_service,
         wikipedia_service,
-        reranker_service
+        reranker_service,
+        query_refiner_service
     ):
         """Initialize chat controller.
 
@@ -39,6 +40,7 @@ class ChatController:
         self.config_service = config_service
         self.wikipedia_service = wikipedia_service
         self.reranker_service = reranker_service
+        self.query_refiner_service = query_refiner_service
 
     async def handle_chat(self, request: ChatRequest):
         """Handle chat request with streaming response.
@@ -76,6 +78,9 @@ class ChatController:
             # Get system prompt and model config based on topic
             system_prompt = self.config_service.get_system_prompt(metadata.topic)
             model_name = self.config_service.get_preferred_model_for_topic(metadata.topic)
+            # Enforce: if a mini variant is selected for final summary, use default instead
+            if model_name and "mini" in model_name:
+                model_name = self.config_service.get_default_model()
             model_config = self.config_service.get_model_config(model_name)
 
             logger.info(
@@ -128,8 +133,25 @@ Please answer the user's question based ONLY on the Wikipedia information provid
                     wikipedia_metadata = WikipediaMetadata.model_validate(last_wiki)
                     yield self._format_sse('wikipedia', wikipedia_metadata.model_dump())
                 else:
-                    # Build smart search candidates from the user's prompt
-                    candidates = SearchQueryBuilder.build_candidates(prompt)
+                    # LLM-powered refinement first
+                    llm_queries, llm_lang = await self.query_refiner_service.refine(prompt)
+
+                    # Heuristic candidates from the user's prompt
+                    heuristic_candidates = SearchQueryBuilder.build_candidates(prompt)
+
+                    # Merge, prioritizing LLM queries
+                    seen = set()
+                    candidates = []
+                    for q in (llm_queries or []):
+                        qn = (q or '').strip()
+                        if qn and qn.lower() not in seen:
+                            candidates.append(qn)
+                            seen.add(qn.lower())
+                    for q in heuristic_candidates:
+                        qn = (q or '').strip()
+                        if qn and qn.lower() not in seen:
+                            candidates.append(qn)
+                            seen.add(qn.lower())
 
                     # Only seed with previous queries/titles if topic didn't change
                     if last_wiki and not topic_changed:
@@ -170,7 +192,8 @@ Please answer the user's question based ONLY on the Wikipedia information provid
 
                     # If no results and likely a different language, try alternate language
                     if not search_results:
-                        likely_lang = SearchQueryBuilder.detect_language(prompt, default=wiki_config.get("language", "en"))
+                        # Prefer LLM-indicated language; else heuristic detection
+                        likely_lang = llm_lang or SearchQueryBuilder.detect_language(prompt, default=wiki_config.get("language", "en"))
                         current_lang = wiki_config.get("language", "en")
                         if likely_lang and likely_lang != current_lang:
                             from app.services.wikipedia_service import WikipediaService
@@ -211,27 +234,35 @@ Please answer the user's question based ONLY on the Wikipedia information provid
                                 for i, r in enumerate(search_results[:reranking_config.get("top_n", 5)])
                             ]
 
-                        # Get full article content for top results
-                        pageids = [r.pageid for r in ranked_results]
-                        articles = await self.wikipedia_service.get_multiple_articles(
-                            pageids=pageids,
-                            extract_length=search_config.get("extract_length", 500)
-                        )
+                        # Get full article content ONLY for results with relevance >= 0.9
+                        high_conf_results = [r for r in ranked_results if (r.relevance_score or 0) >= 0.9]
+                        articles = []
+                        if high_conf_results:
+                            pageids = [r.pageid for r in high_conf_results]
+                            articles = await self.wikipedia_service.get_multiple_articles(
+                                pageids=pageids,
+                                extract_length=search_config.get("extract_length", 500)
+                            )
 
                         # Sort articles by reranked relevance (desc)
                         score_lookup = {r.pageid: r.relevance_score for r in ranked_results}
                         articles.sort(key=lambda a: score_lookup.get(a.get("pageid"), 0), reverse=True)
 
-                        # Build Wikipedia context
+                        # Build Wikipedia context (may be empty if no >=0.9 results)
                         wiki_context = self._build_wikipedia_context(articles)
 
-                        # Enhance prompt with Wikipedia content
-                        enhanced_prompt = f"""User Question: {prompt}
+                        # Enhance prompt with Wikipedia content or note low relevance
+                        if articles:
+                            enhanced_prompt = f"""User Question: {prompt}
 
 Wikipedia Information:
 {wiki_context}
 
 Please answer the user's question based ONLY on the Wikipedia information provided above. Include citations to the article titles."""
+                        else:
+                            enhanced_prompt = (
+                                f"{prompt}\n\nNote: No high-relevance (>=0.9) Wikipedia articles were found among candidates."
+                            )
 
                         # Build Wikipedia metadata
                         sources = []

@@ -32,6 +32,17 @@ class LLMService:
         """
         if api_key_env not in self._clients:
             api_key = os.getenv(api_key_env)
+
+            # Fallback: if a model-specific env var is missing, try OPENAI_API_KEY
+            if not api_key and api_key_env != "OPENAI_API_KEY":
+                fallback_key = "OPENAI_API_KEY"
+                fallback_api_key = os.getenv(fallback_key)
+                if fallback_api_key:
+                    api_key = fallback_api_key
+                    logger.warning(
+                        f"{api_key_env} not set; falling back to {fallback_key}"
+                    )
+
             if not api_key:
                 raise ValueError(f"{api_key_env} not set in environment variables")
 
@@ -110,7 +121,7 @@ class LLMService:
         self,
         messages: List[Dict],
         model_config: Dict,
-        temperature: Optional[float] = 0.3
+        temperature: Optional[float] = 0.0
     ) -> Dict:
         """Generate structured JSON completion from LLM.
 
