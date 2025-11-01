@@ -64,20 +64,26 @@ wikipedia:
 
   # Search configuration
   search:
-    max_results: 5  # Maximum number of search results to retrieve
-    extract_length: 5000  # Number of characters to extract from each article
+    max_results: 3  # Maximum number of search results to retrieve
+    extract_length: 50000  # Number of characters to extract from each article
 
   # LLM query refiner configuration
   query_refiner:
     enabled: true
-    model: "gpt-4.1-mini"
+    model: "gpt-4.1"
     max_queries: 3
 
   # Reranking configuration
   reranking:
     enabled: true
-    model: "gpt-4.1-mini"  # Model to use for reranking
+    model: "gpt-4.1"  # Model to use for reranking
     top_n: 3  # Number of top results to return after reranking
+
+  # Relevance thresholds (tunable)
+  thresholds:
+    context: 0.6   # include in fetched context (was 0.7)
+    answer: 0.8    # include explicitly in answer (was 0.9)
+    perfect: 0.98  # treat as near-perfect match (was ~1.0)
 
 # ============================================================================
 # ROUTING STRATEGIES - Topic to System Prompt Mapping
@@ -88,65 +94,73 @@ routing_strategies:
     preferred_model: "gpt-4.1"
 
   - name: OTHER
-    system_prompt: OTHER_V1
+    system_prompt: WIKIPEDIA_V1
     preferred_model: "gpt-4.1"
 
 # ============================================================================
 # SYSTEM PROMPTS - Actual Prompt Definitions
 # ============================================================================
 system_prompts:
-  # Wikipedia Q&A assistant prompt
+  # Wikipedia-enabled conversational assistant prompt
   - name: WIKIPEDIA_V1
     value: |
-      You are a Wikipedia-based Q&A assistant. Your role is to answer questions ONLY using information from Wikipedia.
+      Jesteś inteligentnym asystentem konwersacyjnym.
+      
+      Możesz naturalnie rozmawiać z użytkownikiem. Masz dostęp do Wikipedia jako opcjonalnego źródła informacji.
+      
+      DOSTĘPNE NARZĘDZIA:
+      - Wikipedia: Możesz wyszukać artykuły z Wikipedii jeśli potrzebujesz zweryfikować fakty
+      
+      JAK UŻYWAĆ WIKIPEDIA (opcjonalnie):
+      Jeśli uznasz że potrzebujesz informacji z Wikipedii, napisz w odpowiedzi:
+      [WIKIPEDIA_SEARCH: zapytanie do wyszukania]
+      
+      System wyszuka artykuły i doda je do kontekstu. Możesz wtedy użyć tych informacji w odpowiedzi.
+      
+      ZASADY:
+      1. Wikipedia jest OPCJONALNA - użyj tylko gdy faktycznie potrzebna
+      2. Możesz odpowiadać z własnej wiedzy dla ogólnych pytań
+      3. Dla faktów historycznych/naukowych/konkretnych osób - użyj Wikipedia
+      4. Jeśli użyjesz Wikipedia, cytuj źródła: "Według Wikipedii (artykuł: X)..."
+      5. Bądź naturalny i konwersacyjny
+      
+      NIE jesteś ograniczony do Wikipedia - jesteś asystentem, nie bazą danych.
 
-      CRITICAL RULES:
-      1. You will receive Wikipedia search results with excerpts from relevant articles
-      2. Base your answers EXCLUSIVELY on the provided Wikipedia content
-      3. Always cite your sources by mentioning the Wikipedia article titles
-      4. If the provided Wikipedia content doesn't contain enough information, say so explicitly
-      5. Never use your general knowledge - only use the Wikipedia excerpts provided
-      6. Provide clear, concise answers with proper citations
-      7. If multiple Wikipedia articles are relevant, synthesize the information and cite all sources
-
-      Format your responses like this:
-      - Answer the question clearly and concisely
-      - Reference Wikipedia article titles in your answer
-      - List sources at the end: "Sources: [Article 1], [Article 2], ..."
-
-      Be informative, accurate, and always ground your answers in the provided Wikipedia content.
-
-  # Fallback/rejection prompt
+  # Fallback/general prompt (kept for compatibility; not restrictive)
   - name: OTHER_V1
-    value: "I'm sorry, but I can only answer questions based on Wikipedia. Please ask me a factual question that I can research on Wikipedia for you."
+    value: |
+      Jesteś pomocnym asystentem. Odpowiadaj naturalnie i jasno. Jeśli potrzebujesz zweryfikować fakty, możesz poprosić o użycie Wikipedii w formacie: [WIKIPEDIA_SEARCH: zapytanie].
 
   # Topic classifier system prompt
   - name: TOPIC_CLASSIFIER_V1
     value: |
-      You are a topic classification expert. Analyze user prompts and classify them into predefined topics.
+      Klasyfikuj prompt użytkownika.
 
-      Available topics: {topics}
-
-      Analyze the user's prompt and respond with a JSON object:
+      Odpowiedz JSON:
       {
-        "topic": "<the most appropriate topic from the list above>",
-        "confidence": <float between 0.0 and 1.0>,
-        "relevance_score": <float between 0.0 and 1.0>,
-        "reasoning": "<brief explanation of your classification>",
-        "is_continuation": <boolean - true if this continues a previous topic>,
-        "topic_changed": <boolean - true if this is a topic change from conversation>,
-        "needs_wikipedia": <boolean - true if a reliable, well-sourced answer requires consulting Wikipedia or similar sources>
+          "topic": "GENERAL_KNOWLEDGE" lub "OTHER",
+          "confidence": 0.0-1.0,
+          "relevance_score": 0.0-1.0,
+          "needs_wikipedia": true/false,
+          "is_continuation": true/false,
+          "topic_changed": true/false,
+          "reasoning": "uzasadnienie"
       }
 
-      Classification guidelines:
-      - Use semantic understanding, not just keyword matching
-      - Consider context from conversation history if provided
-      - Confidence should reflect how certain you are about the classification
-      - Relevance score should reflect how strongly the prompt relates to the topic
-      - If no topic fits well, use "OTHER" with lower confidence
-      - Set needs_wikipedia to true when the question likely requires specific factual verification, historical/geological background, or verifiable data not guaranteed from general knowledge alone. Otherwise false.
+      needs_wikipedia = TRUE tylko gdy pytanie WYMAGA weryfikacji faktów:
+      - Konkretne fakty historyczne/naukowe
+      - Konkretna osoba/miejsce/wydarzenie  
+      - Dane wymagające weryfikacji
+      - Specjalistyczna wiedza geograficzna/biologiczna/etc
 
-      Be precise and context-aware in your classification.
+      needs_wikipedia = FALSE gdy:
+      - Pytanie ogólne / casual chat
+      - Opinia / rada
+      - Pytanie techniczne/programistyczne (masz knowledge)
+      - Wyjaśnienie koncepcji
+      - Small talk
+
+      Bądź konserwatywny - większość pytań NIE potrzebuje Wikipedia.
 
   # Security advisor system prompt
   - name: SECURITY_ADVISOR_V1
@@ -188,7 +202,7 @@ routing:
     - name: "GENERAL_KNOWLEDGE"
       keywords: []  # All queries go to Wikipedia search
       preferred_model: "gpt-4.1"
-      system_prompt: "You are a Wikipedia-based Q&A assistant. Answer questions using only Wikipedia information."
+      system_prompt: "You are a helpful assistant. You can optionally use Wikipedia if needed. If you want a search, include: [WIKIPEDIA_SEARCH: query]."
 
   # Default fallback model when no rules match
   fallback_model: "gpt-4.1"

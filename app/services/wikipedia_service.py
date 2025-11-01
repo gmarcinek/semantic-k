@@ -152,7 +152,9 @@ class WikipediaService:
                                 "title": page.get("title", ""),
                                 "extract": page.get("extract", ""),
                                 "url": page.get("fullurl", ""),
-                                "pageid": page.get("pageid", "")
+                                "pageid": page.get("pageid", ""),
+                                # image_url may be added from summary fallback
+                                "image_url": None
                             }
                             # Fallback to REST summary if extract empty
                             if not result["extract"]:
@@ -161,6 +163,8 @@ class WikipediaService:
                                     result["extract"] = summary.get("extract", result["extract"])
                                     if not result["url"]:
                                         result["url"] = summary.get("url", result["url"])
+                                    if summary.get("thumbnail_url"):
+                                        result["image_url"] = summary.get("thumbnail_url")
                             return result
                     return None
         except Exception as e:
@@ -220,7 +224,8 @@ class WikipediaService:
                                 "title": page.get("title", ""),
                                 "extract": page.get("extract", ""),
                                 "url": page.get("fullurl", ""),
-                                "pageid": page.get("pageid", "")
+                                "pageid": page.get("pageid", ""),
+                                "image_url": None
                             }
                             if not result["extract"]:
                                 summary = await self._fetch_summary_by_title(result["title"])
@@ -228,10 +233,72 @@ class WikipediaService:
                                     result["extract"] = summary.get("extract", result["extract"])
                                     if not result["url"]:
                                         result["url"] = summary.get("url", result["url"])
+                                    if summary.get("thumbnail_url"):
+                                        result["image_url"] = summary.get("thumbnail_url")
                             return result
                     return None
         except Exception as e:
             logger.error(f"Wikipedia article retrieval error: {e}")
+            return None
+
+    async def get_full_article_by_pageid(
+        self,
+        pageid: int,
+        max_chars: int = 50000
+    ) -> Optional[Dict[str, str]]:
+        """Get near-full article content by page ID (no intro limit, large char cap).
+
+        Args:
+            pageid: Wikipedia page ID
+            max_chars: Maximum number of characters to retrieve (safety cap)
+
+        Returns:
+            Dictionary with title, extract (large), url, pageid
+        """
+        params = {
+            "action": "query",
+            "prop": "extracts|info",
+            "pageids": pageid,
+            "explaintext": 1,
+            # no exintro: fetch beyond lead section
+            "exchars": max_chars,
+            "redirects": 1,
+            "inprop": "url",
+            "format": "json",
+            "utf8": 1
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(self.base_url, params=params, headers=self._headers) as response:
+                    if response.status != 200:
+                        text = await response.text()
+                        logger.error(f"Wikipedia full article HTTP {response.status}: {text[:200]}")
+                        return None
+
+                    content_type = response.headers.get("Content-Type", "").lower()
+                    if "application/json" not in content_type:
+                        text = await response.text()
+                        logger.error(f"Wikipedia full article non-JSON ({content_type}): {text[:200]}")
+                        return None
+
+                    data = await response.json()
+
+                    if "query" in data and "pages" in data["query"]:
+                        pages = data["query"]["pages"]
+                        page = next(iter(pages.values()))
+
+                        if "missing" not in page:
+                            result = {
+                                "title": page.get("title", ""),
+                                "extract": page.get("extract", ""),
+                                "url": page.get("fullurl", ""),
+                                "pageid": page.get("pageid", "")
+                            }
+                            return result
+                    return None
+        except Exception as e:
+            logger.error(f"Wikipedia full article retrieval error: {e}")
             return None
 
     async def get_multiple_articles(
@@ -291,7 +358,8 @@ class WikipediaService:
                                     "title": page.get("title", ""),
                                     "extract": page.get("extract", ""),
                                     "url": page.get("fullurl", ""),
-                                    "pageid": page.get("pageid", "")
+                                    "pageid": page.get("pageid", ""),
+                                    "image_url": None
                                 })
 
                         # Fallback to REST summary for any empty extracts
@@ -302,6 +370,8 @@ class WikipediaService:
                                     article["extract"] = summary.get("extract", "")
                                     if not article.get("url"):
                                         article["url"] = summary.get("url", "")
+                                    if summary.get("thumbnail_url"):
+                                        article["image_url"] = summary.get("thumbnail_url")
 
                         # Log fetched articles
                         plugin_logger.info(f"📖 Wikipedia fetched {len(results)} full articles:")
@@ -367,6 +437,19 @@ class WikipediaService:
                         .get("desktop", {})
                         .get("page", "")
                     )
-                    return {"extract": extract, "url": page_url}
+                    thumb = None
+                    # Prefer originalimage over thumbnail if present
+                    if isinstance(data.get("originalimage"), dict):
+                        thumb = data["originalimage"].get("source")
+                    if not thumb and isinstance(data.get("thumbnail"), dict):
+                        thumb = data["thumbnail"].get("source")
+                    return {"extract": extract, "url": page_url, "thumbnail_url": thumb}
         except Exception:
             return None
+
+    async def get_summary_by_title(self, title: str) -> Optional[Dict[str, str]]:
+        """Public method to fetch page summary with optional thumbnail.
+
+        Returns keys: extract, url, thumbnail_url (if available).
+        """
+        return await self._fetch_summary_by_title(title)

@@ -8,6 +8,7 @@ from .schemas import (
     WikipediaSource,
     WikipediaMetadata,
     ChatMessageWithSources,
+    WikipediaResearchRequest,
 )
 
 __all__ = [
@@ -19,4 +20,5 @@ __all__ = [
     "WikipediaSource",
     "WikipediaMetadata",
     "ChatMessageWithSources",
+    "WikipediaResearchRequest",
 ]

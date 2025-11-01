@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from app.models import ChatRequest, SessionResetRequest
+from app.models import ChatRequest, SessionResetRequest, WikipediaResearchRequest
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,17 @@ def create_router(chat_controller, config_controller) -> APIRouter:
         """
         return StreamingResponse(
             chat_controller.handle_chat(request),
+            media_type="text/event-stream"
+        )
+
+    @router.post("/api/wiki/research")
+    async def wiki_research(request: WikipediaResearchRequest):
+        """Research a full Wikipedia article and generate a summary (referat).
+
+        Streams the assistant summary as SSE chunks.
+        """
+        return StreamingResponse(
+            chat_controller.handle_wikipedia_research(request),
             media_type="text/event-stream"
         )
 

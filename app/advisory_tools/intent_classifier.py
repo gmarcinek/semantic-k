@@ -1,8 +1,9 @@
-"""Intent classifier tool to detect depth of response requested.
+"""LLM-only intent classifier to detect requested response depth.
 
 Determines whether the user wants a brief informational answer (INFO)
-or a deeper, elaborated essay (DEEP_DIVE). Uses light heuristics and
-conversation context to avoid unnecessary LLM calls.
+or a deeper, elaborated essay (DEEP_DIVE). This version relies solely on
+the LLM for classification and does not use hardcoded keyword lists or
+heuristics. Conversation context may be provided to the LLM.
 """
 
 import logging
@@ -15,25 +16,46 @@ logger = logging.getLogger(__name__)
 
 
 class IntentClassifier(BaseAdvisoryTool):
-    """Heuristic intent classifier for INFO vs DEEP_DIVE."""
-
-    # Keywords indicating a desire for more depth or an essay (PL/EN)
-    DEEP_KEYWORDS_PL = [
-        "więcej", "rozwiń", "szczegół", "szczegol", "dogłęb", "dogleb",
-        "szerzej", "obszern", "wyczerpująco", "wyczerpujaco", "elaborat",
-        "referat", "esej", "omów szerzej", "omow szerzej", "omów dogłębnie",
-        "omow doglebnie", "napisz dłużej", "napisz dluzej", "pogłęb", "pogleb"
-    ]
-
-    DEEP_KEYWORDS_EN = [
-        "more", "more details", "detailed", "in depth", "in-depth",
-        "expand", "elaborate", "comprehensive", "long form", "long-form",
-        "write an essay", "essay", "report", "deep dive", "deep-dive",
-        "explain further", "go deeper", "cover in detail"
-    ]
+    """LLM-only intent classifier for INFO vs DEEP_DIVE."""
 
     def __init__(self, llm_service, config_service):
         super().__init__("IntentClassifier", llm_service, config_service)
+
+    def _build_system_prompt(self) -> str:
+        """Build system prompt for intent detection.
+
+        The LLM must return strict JSON with fields: intent, confidence, reasoning.
+        """
+        return (
+            "You are an expert intent classifier. "
+            "Determine whether the user wants a brief informational answer (INFO) "
+            "or a deeper, elaborated essay/report (DEEP_DIVE). "
+            "Base the decision solely on semantic understanding of the current prompt "
+            "and the provided recent conversation context, without relying on any keyword lists. "
+            "Return a JSON object with fields: intent ('INFO' or 'DEEP_DIVE'), "
+            "confidence (0.0-1.0), and reasoning (brief)."
+        )
+
+    def _build_analysis_prompt(
+        self,
+        prompt: str,
+        chat_history: Optional[List[Dict]] = None,
+    ) -> str:
+        """Build user message with prompt and minimal recent context for the LLM."""
+        analysis = f"Classify intent for this user prompt:\n\n\"{prompt}\""
+
+        if chat_history:
+            recent = chat_history[-3:]
+            context_lines = [
+                f"{m.get('role')}: {str(m.get('content',''))[:120]}" for m in recent
+            ]
+            analysis += "\n\nRecent conversation context:\n" + "\n".join(context_lines)
+
+        analysis += (
+            "\n\nRespond ONLY with JSON in the form:\n"
+            "{\n  \"intent\": \"INFO|DEEP_DIVE\",\n  \"confidence\": <float 0..1>,\n  \"reasoning\": \"<brief>\"\n}"
+        )
+        return analysis
 
     async def analyze(
         self,
@@ -41,59 +63,42 @@ class IntentClassifier(BaseAdvisoryTool):
         chat_history: Optional[List[Dict]] = None,
         context: Optional[Dict] = None,
     ) -> AdvisoryResult:
-        """Classify the user's intent as INFO or DEEP_DIVE.
+        """Classify the user's intent as INFO or DEEP_DIVE using only the LLM."""
+        try:
+            system_prompt = self._build_system_prompt()
+            user_prompt = self._build_analysis_prompt(prompt, chat_history)
+            model_config = self._get_model_config()
 
-        Heuristics:
-        - Explicit depth cues in current prompt → DEEP_DIVE (high confidence)
-        - Single-word follow-ups like "więcej" / "more" after assistant reply → DEEP_DIVE
-        - Phrases like "napisz referat/esej" → DEEP_DIVE (very high confidence)
-        - Otherwise → INFO
-        """
-        text = (prompt or "").strip().lower()
+            result = await self.llm_service.generate_structured_completion(
+                messages=self._build_analysis_messages(system_prompt, user_prompt),
+                model_config=model_config,
+                temperature=0.2,
+            )
 
-        indicators: List[str] = []
-        explicit_more_request = False
+            intent = str(result.get("intent", "INFO")).strip().upper()
+            if intent not in {"INFO", "DEEP_DIVE"}:
+                intent = "INFO"
+            confidence = float(result.get("confidence", 0.5))
+            reasoning = result.get("reasoning", "Intent classified.")
 
-        # Check explicit deep cues in current prompt
-        for kw in self.DEEP_KEYWORDS_PL + self.DEEP_KEYWORDS_EN:
-            if kw in text:
-                indicators.append(kw)
+            summary = f"Intent: {intent} (confidence: {confidence:.2f}). {reasoning}"
 
-        # Detect terse follow-up asking for more after assistant message
-        if chat_history:
-            last_roles = [m.get("role") for m in chat_history[-2:]]
-            if any(r == "assistant" for r in last_roles):
-                if text in {"więcej", "prosze wiecej", "more", "more details", "rozwiń", "rozwin"}:
-                    explicit_more_request = True
-                    indicators.append("explicit_followup_more")
-
-        # Determine intent and confidence
-        if explicit_more_request:
-            intent = "DEEP_DIVE"
-            confidence = 0.95
-            reasoning = "Explicit follow-up requesting more detail detected."
-        elif any(indicators):
-            intent = "DEEP_DIVE"
-            # Weight confidence by number/strength of indicators
-            base = 0.75
-            bonus = min(0.2, 0.05 * len(indicators))
-            confidence = base + bonus
-            reasoning = f"Depth indicators found: {', '.join(indicators)}."
-        else:
-            intent = "INFO"
-            confidence = 0.6
-            reasoning = "No signals for deep elaboration; defaulting to brief information."
-
-        summary = f"Intent: {intent} (confidence: {confidence:.2f}). {reasoning}"
-
-        return AdvisoryResult(
-            tool_name=self.name,
-            score=confidence,
-            reasoning=summary,
-            metadata={
-                "intent": intent,
-                "indicators": indicators,
-                "explicit_more_request": explicit_more_request,
-            },
-        )
-
+            return AdvisoryResult(
+                tool_name=self.name,
+                score=confidence,
+                reasoning=summary,
+                metadata={
+                    "intent": intent,
+                },
+            )
+        except Exception as e:
+            logger.error(f"Intent classification failed: {e}", exc_info=True)
+            return AdvisoryResult(
+                tool_name=self.name,
+                score=0.0,
+                reasoning="Intent classification unavailable - defaulting to INFO.",
+                metadata={
+                    "intent": "INFO",
+                    "error": str(e),
+                },
+            )

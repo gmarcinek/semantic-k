@@ -43,12 +43,12 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     session_service = SessionService()
     llm_service = LLMService()
     classification_service = ClassificationService(llm_service, config_service)
-    query_refiner_service = QueryRefinerService(llm_service, config_service)
 
     # Initialize Wikipedia services
     wiki_config = config_service.config.get("wikipedia", {})
     wikipedia_service = WikipediaService(language=wiki_config.get("language", "en"))
     reranker_service = RerankerService(llm_service)
+    query_refiner_service = QueryRefinerService(llm_service, config_service)
 
     # Initialize controllers
     logger.info("Initializing controllers...")

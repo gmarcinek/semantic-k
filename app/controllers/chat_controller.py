@@ -2,11 +2,10 @@
 import asyncio
 import json
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Tuple
 from uuid import uuid4
 
-from app.models import ChatRequest, WikipediaSource, WikipediaMetadata
-from app.utils.search_query_builder import SearchQueryBuilder
+from app.models import ChatRequest, WikipediaSource, WikipediaMetadata, WikipediaResearchRequest
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,7 @@ class ChatController:
         config_service,
         wikipedia_service,
         reranker_service,
-        query_refiner_service
+        query_refiner_service=None
     ):
         """Initialize chat controller.
 
@@ -87,231 +86,233 @@ class ChatController:
                 f"Generating response: topic={metadata.topic}, model={model_name}"
             )
 
-            # Get recent conversation context for LLM (prefer recency to avoid fixation)
+            # Prepare conversation context
             context = self.session_service.get_conversation_context(session_id, limit=6)
 
-            # Decide on answer depth style
-            deep_mode = (getattr(metadata, 'intent', 'INFO') == 'DEEP_DIVE')
-
-            # Optional Wikipedia assistance (only when classifier requires it)
-            wikipedia_metadata = None
-            enhanced_prompt = prompt
-
+            # If classifier says Wikipedia is needed, search first and present results
             if getattr(metadata, 'needs_wikipedia', False):
-                # Inspect chat history for previous Wikipedia metadata and topic
-                last_wiki = None
-                last_topic = None
-                if chat_history:
-                    for msg in reversed(chat_history):
-                        md = msg.get('metadata') or {}
-                        if not last_wiki and isinstance(md.get('wikipedia'), dict) and md['wikipedia'].get('sources'):
-                            last_wiki = md['wikipedia']
-                        if not last_topic and md.get('topic'):
-                            last_topic = md['topic']
-                        if last_wiki and last_topic:
-                            break
+                system_prompt = self._enable_wikipedia_tool(system_prompt)
 
-                # Decide on continuation and topic change more robustly
-                is_continuation = metadata.is_continuation >= 0.5
-                classifier_topic_changed = metadata.topic_change > 0.5
-                history_topic_changed = (last_topic is not None and last_topic != metadata.topic)
-                topic_changed = classifier_topic_changed or history_topic_changed
+                # Optionally refine queries via LLM
+                wiki_cfg = self.config_service.config.get('wikipedia', {})
+                qr_cfg = wiki_cfg.get('query_refiner', {})
+                queries = [prompt]
+                if qr_cfg.get('enabled', False) and self.query_refiner_service:
+                    refined = await self.query_refiner_service.refine_queries(
+                        prompt=prompt,
+                        chat_history=chat_history,
+                        language=wiki_cfg.get('language', 'pl'),
+                        max_queries=int(qr_cfg.get('max_queries', 3)),
+                        model_name=qr_cfg.get('model', 'gpt-4.1-mini')
+                    )
+                    if refined:
+                        queries = refined
 
-                if last_wiki and is_continuation and not topic_changed and not deep_mode:
-                    # Reuse previous Wikipedia sources without re-searching
-                    logger.info("Reusing previous Wikipedia sources for context (continuation detected)")
-                    articles = last_wiki.get('sources', [])
+                wiki_context, wikipedia_metadata = await self._search_wikipedia_multi_query(
+                    queries=queries,
+                    original_prompt=prompt
+                )
 
-                    # Build context and enhanced prompt
-                    wiki_context = self._build_wikipedia_context(articles)
-                    enhanced_prompt = f"""User Question: {prompt}
-
-Wikipedia Information:
-{wiki_context}
-
-Please answer the user's question based ONLY on the Wikipedia information provided above. Include citations to the article titles."""
-
-                    # Prepare and emit previous metadata for client visibility
-                    wikipedia_metadata = WikipediaMetadata.model_validate(last_wiki)
+                if wikipedia_metadata and getattr(wikipedia_metadata, 'sources', None):
+                    # Show sources first so buttons are visible
                     yield self._format_sse('wikipedia', wikipedia_metadata.model_dump())
-                else:
-                    # LLM-powered refinement first
-                    llm_queries, llm_lang = await self.query_refiner_service.refine(prompt)
 
-                    # Heuristic candidates from the user's prompt
-                    heuristic_candidates = SearchQueryBuilder.build_candidates(prompt)
+                # Decide behavior based on relevance thresholds (lowered via config)
+                sources = wikipedia_metadata.sources if wikipedia_metadata else []
+                thr_cfg = self.config_service.config.get('wikipedia', {}).get('thresholds', {})
+                answer_thr = float(thr_cfg.get('answer', 0.8))    # previously 0.9
+                perfect_thr = float(thr_cfg.get('perfect', 0.98)) # previously ~1.0
+                top_answer = [s for s in sources if (s.relevance_score or 0) >= answer_thr]
+                perfect = [s for s in sources if (s.relevance_score or 0) >= perfect_thr]
 
-                    # Merge, prioritizing LLM queries
-                    seen = set()
-                    candidates = []
-                    for q in (llm_queries or []):
-                        qn = (q or '').strip()
-                        if qn and qn.lower() not in seen:
-                            candidates.append(qn)
-                            seen.add(qn.lower())
-                    for q in heuristic_candidates:
-                        qn = (q or '').strip()
-                        if qn and qn.lower() not in seen:
-                            candidates.append(qn)
-                            seen.add(qn.lower())
+                # Build context with Wikipedia results when we plan to cite
+                final_context = list(context)
+                if sources:
+                    final_context.append({'role': 'system', 'content': f'Wikipedia results:\n{wiki_context}'})
 
-                    # Only seed with previous queries/titles if topic didn't change
-                    if last_wiki and not topic_changed:
-                        prior_titles = [s.get('title') for s in last_wiki.get('sources', []) if s.get('title')]
-                        prior_query = last_wiki.get('query')
-                        seed = []
-                        if prior_query:
-                            seed.append(prior_query)
-                        seed.extend(prior_titles[:3])
-                        # Deduplicate preserving order, with seed first
-                        seen = set()
-                        merged = []
-                        for q in seed + candidates:
-                            if q and q not in seen:
-                                merged.append(q)
-                                seen.add(q)
-                        candidates = merged
+                if perfect:
+                    # Fetch full article and generate a source-centric answer
+                    best = perfect[0]
+                    full_article = await self.wikipedia_service.get_full_article_by_pageid(pageid=best.pageid, max_chars=50000)
+                    if full_article:
+                        # Try to attach an image via summary
+                        summary_extra = await self.wikipedia_service.get_summary_by_title(full_article.get('title', ''))
+                        if summary_extra and summary_extra.get('thumbnail_url'):
+                            full_article['image_url'] = summary_extra['thumbnail_url']
 
-                    logger.info(f"Searching Wikipedia for candidates: {candidates}")
+                        wiki_full_ctx = self._build_wikipedia_context([full_article])
+                        final_context.append({'role': 'system', 'content': f'Wikipedia full article (perfect match):\n{wiki_full_ctx}'})
 
-                    # Get Wikipedia configuration
-                    wiki_config = self.config_service.config.get("wikipedia", {})
-                    search_config = wiki_config.get("search", {})
-                    reranking_config = wiki_config.get("reranking", {})
-
-                    # Conservative knobs; depth only affects style downstream
-                    relevance_threshold = 0.9
-                    top_n = reranking_config.get("top_n", 3)
-                    extract_len = search_config.get("extract_length", 500)
-
-                    # Search Wikipedia with candidates in current language
-                    search_results = []
-                    used_query = None
-                    for q in candidates:
-                        results_try = await self.wikipedia_service.search(
-                            query=q,
-                            limit=search_config.get("max_results", 10)
-                        )
-                        if results_try:
-                            search_results = results_try
-                            used_query = q
-                            break
-
-                    # If no results and likely a different language, try alternate language
-                    if not search_results:
-                        # Prefer LLM-indicated language; else heuristic detection
-                        likely_lang = llm_lang or SearchQueryBuilder.detect_language(prompt, default=wiki_config.get("language", "en"))
-                        current_lang = wiki_config.get("language", "en")
-                        if likely_lang and likely_lang != current_lang:
-                            from app.services.wikipedia_service import WikipediaService
-                            alt_service = WikipediaService(language=likely_lang)
-                            for q in candidates:
-                                results_try = await alt_service.search(
-                                    query=q,
-                                    limit=search_config.get("max_results", 10)
-                                )
-                                if results_try:
-                                    search_results = results_try
-                                    used_query = q
-                                    # Replace service so subsequent calls use the right language
-                                    self.wikipedia_service = alt_service
-                                    break
-
-                    if search_results:
-                        # Rerank results if enabled
-                        if reranking_config.get("enabled", True):
-                            logger.info("Reranking Wikipedia results")
-                            ranked_results = await self.reranker_service.rerank_results(
-                                query=used_query or prompt,
-                                search_results=search_results,
-                                top_n=top_n,
-                                model=reranking_config.get("model", "gpt-4o-mini")
-                            )
-                        else:
-                            # Use original ranking
-                            from app.services.reranker_service import RankedResult
-                            ranked_results = [
-                                RankedResult(
-                                    pageid=r.get("pageid", 0),
-                                    title=r.get("title", ""),
-                                    snippet=r.get("snippet", ""),
-                                    relevance_score=1.0 - (i * 0.1),
-                                    reasoning="Original ranking"
-                                )
-                                for i, r in enumerate(search_results[:top_n])
-                            ]
-
-                        # Get full article content with relevance threshold (depth-aware)
-                        high_conf_results = [r for r in ranked_results if (r.relevance_score or 0) >= relevance_threshold]
-                        articles = []
-                        if high_conf_results:
-                            pageids = [r.pageid for r in high_conf_results]
-                            articles = await self.wikipedia_service.get_multiple_articles(
-                                pageids=pageids,
-                                extract_length=extract_len
-                            )
-
-                        # Sort articles by reranked relevance (desc)
-                        score_lookup = {r.pageid: r.relevance_score for r in ranked_results}
-                        articles.sort(key=lambda a: score_lookup.get(a.get("pageid"), 0), reverse=True)
-
-                        # Build Wikipedia context (may be empty if no >= threshold results)
-                        wiki_context = self._build_wikipedia_context(articles)
-
-                        # Enhance prompt with Wikipedia content or note low relevance
-                        if articles:
-                            enhanced_prompt = f"""User Question: {prompt}
-
-Wikipedia Information:
-{wiki_context}
-
-Please base your answer ONLY on the Wikipedia information provided above and include citations to article titles. If information is insufficient, state that clearly."""
-                        else:
-                            enhanced_prompt = (
-                                f"{prompt}\n\nNote: No high-relevance (>= {relevance_threshold}) Wikipedia articles were found among candidates."
-                            )
-
-                        # Build Wikipedia metadata
-                        sources = []
-                        for article in articles:
-                            pid = article.get("pageid")
-                            rel = score_lookup.get(pid)
-                            sources.append(
-                                WikipediaSource(
-                                    title=article.get("title", ""),
-                                    url=article.get("url", ""),
-                                    pageid=pid or 0,
-                                    extract=article.get("extract", ""),
-                                    relevance_score=rel
-                                )
-                            )
-
-                        wikipedia_metadata = WikipediaMetadata(
-                            query=used_query or prompt,
-                            sources=sources,
-                            total_results=len(search_results),
-                            reranked=reranking_config.get("enabled", True),
-                            reranking_model=reranking_config.get("model", "gpt-4o-mini") if reranking_config.get("enabled", True) else None
+                        # Craft prompt to explicitly state perfect match on Wikipedia
+                        title_or = (best.title or full_article.get('title') or '').strip()
+                        prompt_text = (
+                            f"{prompt}\n\n"
+                            "Na Wikipedii jest artykuł, który opisuje to dokładnie. "
+                            f"Napisz wprost: Na Wikipedii jest artykuł '{title_or}', który opisuje to dokładnie. "
+                            "Przygotuj odpowiedź bazując na treści artykułu (z kontekstu systemowego), dodaj 1–2 krótkie cytaty w bloku cytatu i podaj link. "
+                            "Jeśli jest obraz/miniatura, wspomnij o nim i podaj URL obrazu. "
+                            "Zachowaj zwięzłość i nie wymyślaj faktów."
                         )
 
-                        # Send Wikipedia metadata to client
-                        yield self._format_sse('wikipedia', wikipedia_metadata.model_dump())
-
-                        logger.info(f"Wikipedia search complete: {len(articles)} articles retrieved")
+                        response_text = await self.llm_service.generate_chat_response(
+                            prompt=prompt_text,
+                            chat_history=final_context,
+                            system_prompt=system_prompt,
+                            model_config=model_config
+                        )
                     else:
-                        logger.info("No Wikipedia results found for any candidate")
-                        enhanced_prompt = (
-                            f"{prompt}\n\nNote: No relevant Wikipedia articles were found for related queries: "
-                            f"{', '.join(candidates)}."
+                        # Fallback to high relevance behavior if full fetch failed
+                        perfect = []
+
+                if not perfect:
+                    # If we have high-relevance sources (>=0.9), generate a summary based on them
+                    if top_answer:
+                        cite_lines = "\n".join([
+                            f"- {s.title} ({s.url}) [~{int(round((s.relevance_score or 0)*100))}%]"
+                            for s in top_answer[:3]
+                        ])
+                        prompt_text = (
+                            "Podsumuj odpowiedź bazując na wynikach z Wikipedii (patrz kontekst systemowy). "
+                            "W treści wpleć odniesienia do źródeł, a na końcu wypisz je w formie listy:\n"
+                            f"{cite_lines}"
                         )
 
-            # Generate response
-            response_text = await self.llm_service.generate_chat_response(
-                prompt=enhanced_prompt,
-                chat_history=context,
+                        response_text = await self.llm_service.generate_chat_response(
+                            prompt=prompt_text,
+                            chat_history=final_context,
+                            system_prompt=system_prompt,
+                            model_config=model_config
+                        )
+                    else:
+                        # No Wikipedia sources found despite needs_wikipedia → inform and propose next steps
+                        nores_prompt = (
+                            "Nie znaleziono wiarygodnych wyników w Wikipedii dla tego zapytania. "
+                            "Napisz krótko, że brak dopasowań i zaproponuj 2–3 alternatywne zapytania, które mogę wyszukać."
+                        )
+                        response_text = await self.llm_service.generate_chat_response(
+                            prompt=nores_prompt,
+                            chat_history=context,
+                            system_prompt=system_prompt,
+                            model_config=model_config
+                        )
+
+                # Stream assistant answer
+                chunk_size = 10
+                for i in range(0, len(response_text), chunk_size):
+                    chunk = response_text[i:i + chunk_size]
+                    yield self._format_sse('chunk', chunk)
+                    await asyncio.sleep(0.02)
+
+                yield self._format_sse('done', {})
+
+                # Save user message and assistant reply
+                user_metadata = metadata.model_dump()
+                if wikipedia_metadata:
+                    user_metadata['wikipedia'] = wikipedia_metadata.model_dump()
+
+                self.session_service.add_message(
+                    session_id=session_id,
+                    role='user',
+                    content=prompt,
+                    metadata=user_metadata
+                )
+                self.session_service.add_message(
+                    session_id=session_id,
+                    role='assistant',
+                    content=response_text,
+                    model=model_name
+                )
+
+                logger.info(f"Wikipedia pre-search + initial answer complete for session {session_id}")
+                return
+
+            # Otherwise: normal conversational flow (LLM may optionally request Wikipedia)
+            final_context = list(context)
+
+            initial_response = await self.llm_service.generate_chat_response(
+                prompt=prompt,
+                chat_history=final_context,
                 system_prompt=system_prompt,
                 model_config=model_config
             )
+
+            # Extract potential Wikipedia search requests from the model output
+            wiki_queries = self._extract_wikipedia_queries(initial_response)
+
+            if wiki_queries:
+                wiki_context, wikipedia_metadata = await self._search_wikipedia_multi_query(
+                    queries=wiki_queries,
+                    original_prompt=prompt
+                )
+
+                if wiki_context and wikipedia_metadata and getattr(wikipedia_metadata, 'sources', None):
+                    final_context.append({'role': 'system', 'content': f'Wikipedia results:\n{wiki_context}'})
+                    yield self._format_sse('wikipedia', wikipedia_metadata.model_dump())
+
+                    sources = wikipedia_metadata.sources
+                    thr_cfg = self.config_service.config.get('wikipedia', {}).get('thresholds', {})
+                    answer_thr = float(thr_cfg.get('answer', 0.8))
+                    perfect_thr = float(thr_cfg.get('perfect', 0.98))
+                    top_answer = [s for s in sources if (s.relevance_score or 0) >= answer_thr]
+                    perfect = [s for s in sources if (s.relevance_score or 0) >= perfect_thr]
+
+                    if perfect:
+                        best = perfect[0]
+                        full_article = await self.wikipedia_service.get_full_article_by_pageid(pageid=best.pageid, max_chars=50000)
+                        if full_article:
+                            # Attach image if possible
+                            summary_extra = await self.wikipedia_service.get_summary_by_title(full_article.get('title', ''))
+                            if summary_extra and summary_extra.get('thumbnail_url'):
+                                full_article['image_url'] = summary_extra['thumbnail_url']
+
+                            wiki_full_ctx = self._build_wikipedia_context([full_article])
+                            final_context.append({'role': 'system', 'content': f'Wikipedia full article (perfect match):\n{wiki_full_ctx}'})
+
+                            title_or = (best.title or full_article.get('title') or '').strip()
+                            prompt_text = (
+                                "Na Wikipedii jest artykuł, który opisuje to dokładnie. "
+                                f"Napisz wprost: Na Wikipedii jest artykuł '{title_or}', który opisuje to dokładnie. "
+                                "Przygotuj kompletną odpowiedź bazując na artykule (z kontekstu), dodaj 1–2 krótkie cytaty i link. "
+                                "Wspomnij o obrazie, jeśli dostępny, i podaj URL obrazu."
+                            )
+
+                            response_text = await self.llm_service.generate_chat_response(
+                                prompt=prompt_text,
+                                chat_history=final_context,
+                                system_prompt=system_prompt,
+                                model_config=model_config
+                            )
+                        else:
+                            perfect = []
+
+                    if not perfect:
+                        if top_answer:
+                            cite_lines = "\n".join([
+                                f"- {s.title} ({s.url}) [~{int(round((s.relevance_score or 0)*100))}%]"
+                                for s in top_answer[:3]
+                            ])
+                            prompt_text = (
+                                "Based on the Wikipedia results above, provide a complete answer to the user's question. "
+                                "UWZGLĘDNIJ w treści odwołania do tych wysokotrafnych źródeł:\n"
+                                f"{cite_lines}\n"
+                            )
+                            response_text = await self.llm_service.generate_chat_response(
+                                prompt=prompt_text,
+                                chat_history=final_context,
+                                system_prompt=system_prompt,
+                                model_config=model_config
+                            )
+                        else:
+                            response_text = await self.llm_service.generate_chat_response(
+                                prompt=("Based on the Wikipedia results above, provide a complete answer to the user's question."),
+                                chat_history=final_context,
+                                system_prompt=system_prompt,
+                                model_config=model_config
+                            )
+                else:
+                    response_text = initial_response
+            else:
+                response_text = initial_response
 
             # Stream response in chunks
             chunk_size = 10
@@ -362,12 +363,16 @@ Please base your answer ONLY on the Wikipedia information provided above and inc
             title = article.get("title", "Unknown")
             url = article.get("url", "")
             extract = article.get("extract", "")
+            image = article.get("image_url") or article.get("thumbnail") or ""
 
-            context_parts.append(
+            block = (
                 f"Article {i}: {title}\n"
                 f"URL: {url}\n"
                 f"Content: {extract}\n"
             )
+            if image:
+                block += f"Image: {image}\n"
+            context_parts.append(block)
 
         return "\n".join(context_parts)
 
@@ -386,6 +391,185 @@ Please base your answer ONLY on the Wikipedia information provided above and inc
             'data': data
         }
         return f"data: {json.dumps(event_data)}\n\n"
+
+    def _extract_wikipedia_queries(self, response: str) -> List[str]:
+        """Wyciągnij zapytania [WIKIPEDIA_SEARCH: query] z odpowiedzi LLM."""
+        import re
+        pattern = r'\[WIKIPEDIA_SEARCH:\s*([^\]]+)\]'
+        matches = re.findall(pattern, response or "")
+        return [m.strip() for m in matches if m and m.strip()]
+
+    async def _search_wikipedia_multi_query(
+        self,
+        queries: List[str],
+        original_prompt: str,
+    ) -> Tuple[Optional[str], Optional[WikipediaMetadata]]:
+        """Wyszukaj Wikipedia dla wielu zapytań od LLM (zawsze świeże wyniki)."""
+
+        wiki_cfg = self.config_service.config.get('wikipedia', {})
+        rerank_cfg = wiki_cfg.get('reranking', {})
+        thr_cfg = wiki_cfg.get('thresholds', {})
+        # Lowered thresholds (configurable)
+        context_thr = float(thr_cfg.get('context', 0.6))   # previously 0.7
+
+        all_articles: List[Dict] = []
+        all_sources: List[WikipediaSource] = []
+
+        for query in queries[:3]:  # Max 3 zapytania
+            search_results = await self.wikipedia_service.search(query=query, limit=5)
+            if not search_results:
+                continue
+
+            # Rerank using LLM-based reranker
+            ranked = await self.reranker_service.rerank_results(
+                query=query,
+                search_results=search_results,
+                top_n=3,
+                model=rerank_cfg.get('model', 'gpt-4.1-mini')
+            )
+
+            # Keep results with reasonable relevance for context (>=0.7)
+            high_rel = [r for r in ranked if (r.relevance_score or 0) >= context_thr]
+            if not high_rel:
+                continue
+
+            pageids = [r.pageid for r in high_rel]
+            articles = await self.wikipedia_service.get_multiple_articles(
+                pageids=pageids,
+                extract_length=500
+            )
+
+            all_articles.extend(articles)
+
+            score_by_id = {r.pageid: r.relevance_score for r in ranked}
+            for article in articles:
+                rel_score = score_by_id.get(article.get('pageid'))
+                all_sources.append(WikipediaSource(
+                    title=article.get('title', ''),
+                    url=article.get('url', ''),
+                    pageid=article.get('pageid', 0),
+                    extract=article.get('extract', ''),
+                    relevance_score=rel_score,
+                    image_url=article.get('image_url')
+                ))
+
+        if not all_articles:
+            return None, None
+
+        # Deduplikacja po pageid
+        seen_ids = set()
+        unique_articles = []
+        unique_sources = []
+        by_id = {}
+        for article, source in zip(all_articles, all_sources):
+            pid = article.get('pageid')
+            if pid in seen_ids:
+                continue
+            seen_ids.add(pid)
+            unique_articles.append(article)
+            unique_sources.append(source)
+            by_id[pid] = source.relevance_score or 0.0
+
+        # Zbuduj kontekst dla LLM
+        wiki_context = self._build_wikipedia_context(unique_articles)
+
+        # Sort sources by relevance desc if available
+        unique_sources.sort(key=lambda s: (s.relevance_score or 0), reverse=True)
+
+        metadata = WikipediaMetadata(
+            query=", ".join(queries),
+            sources=unique_sources,
+            total_results=len(all_articles),
+            reranked=True,
+            reranking_model=rerank_cfg.get('model', 'gpt-4.1-mini')
+        )
+
+        return wiki_context, metadata
+
+    def _enable_wikipedia_tool(self, system_prompt: str) -> str:
+        """Dodaj informację o dostępności Wikipedia jako tool (już w promptcie)."""
+        return system_prompt
+
+    async def handle_wikipedia_research(self, request: WikipediaResearchRequest):
+        """Stream a deep-dive summary (referat) based on a full Wikipedia article."""
+        session_id = request.session_id
+        pageid = request.pageid
+        title = request.title
+
+        try:
+            chat_history = self.session_service.get_session(session_id)
+
+            # Determine topic from last metadata, fallback (used only to pick model/prompt)
+            topic = 'GENERAL_KNOWLEDGE'
+            if chat_history:
+                for msg in reversed(chat_history):
+                    md = msg.get('metadata') or {}
+                    if md.get('topic'):
+                        topic = md['topic']
+                        break
+
+            # Build a detached, clean system prompt: ignore prior conversation
+            base_system_prompt = self.config_service.get_system_prompt(topic)
+            base_system_prompt = self._enable_wikipedia_tool(base_system_prompt)
+            system_prompt = (
+                f"{base_system_prompt}\n\n" \
+                "Dla tej operacji badawczej ZUPEŁNIE ignoruj poprzednią rozmowę. "
+                "Opracuj referat wyłącznie na podstawie artykułu z Wikipedii, który dodam poniżej w kontekście systemowym. "
+                "Nie dodawaj treści spoza artykułu."
+            )
+            model_name = self.config_service.get_preferred_model_for_topic(topic)
+            if model_name and "mini" in model_name:
+                model_name = self.config_service.get_default_model()
+            model_config = self.config_service.get_model_config(model_name)
+
+            # Fetch full article
+            article = await self.wikipedia_service.get_full_article_by_pageid(pageid=pageid, max_chars=50000)
+            if not article:
+                yield self._format_sse('error', f'Nie udało się pobrać artykułu (pageid={pageid}).')
+                yield self._format_sse('done', {})
+                return
+
+            # Prepare Wikipedia context
+            wiki_context = self._build_wikipedia_context([article])
+            # Use a clean, detached context limited to the article only
+            final_context = [{'role': 'system', 'content': f'Wikipedia results (detached):\n{wiki_context}'}]
+
+            # Generate referat based on full article
+            prompt = (
+                "Na podstawie pełnego artykułu z Wikipedii w kontekście systemowym powyżej przygotuj zwięzły, dobrze ustrukturyzowany referat o tym HAŚLE. "
+                "Nie odwołuj się do wcześniejszej rozmowy. Nie dodawaj nic spoza artykułu. "
+                "Cytuj źródło w formie: Według Wikipedii (artykuł: {title_or})."
+            )
+            title_or = (title or article.get('title') or '').strip()
+            prompt = prompt.replace('{title_or}', title_or)
+
+            response_text = await self.llm_service.generate_chat_response(
+                prompt=prompt,
+                chat_history=final_context,
+                system_prompt=system_prompt,
+                model_config=model_config
+            )
+
+            # Stream response
+            chunk_size = 10
+            for i in range(0, len(response_text), chunk_size):
+                chunk = response_text[i:i + chunk_size]
+                yield self._format_sse('chunk', chunk)
+                await asyncio.sleep(0.02)
+
+            yield self._format_sse('done', {})
+
+            # Save assistant message
+            self.session_service.add_message(
+                session_id=session_id,
+                role='assistant',
+                content=response_text,
+                model=model_name
+            )
+
+        except Exception as e:
+            logger.error(f"Error in wikipedia research handler: {e}", exc_info=True)
+            yield self._format_sse('error', f'Błąd: {str(e)}')
 
     async def handle_reset(self, session_id: Optional[str] = None) -> Dict:
         """Handle session reset request.

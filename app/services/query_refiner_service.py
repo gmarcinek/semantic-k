@@ -1,89 +1,95 @@
-"""LLM-powered query refiner for Wikipedia searches.
+"""LLM-based query refiner for Wikipedia searches.
 
-Takes a natural-language user prompt and produces concise Wikipedia-ready
-search queries (e.g., article titles or key phrases). Falls back gracefully
-if LLM fails.
+Generates a small set of high-quality search queries based on the user's
+prompt and recent conversation context. Output is LLM-only, structured JSON.
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
+
+from app.services.llm_service import LLMService
+from app.utils.colored_logger import get_plugin_logger
+
+logger = logging.getLogger(__name__)
+plugin_logger = get_plugin_logger(__name__, 'wikipedia')
 
 
 class QueryRefinerService:
-    """Uses LLM to refine user prompts into Wikipedia search queries."""
+    """Service that asks the LLM to produce refined Wikipedia queries."""
 
-    def __init__(self, llm_service, config_service):
+    def __init__(self, llm_service: LLMService, config_service):
         self.llm_service = llm_service
         self.config_service = config_service
-        self.logger = logging.getLogger(__name__)
 
-    def _get_model_config(self) -> Dict:
-        cfg = self.config_service.config
-        wiki_cfg = cfg.get("wikipedia", {})
-        ref_cfg = wiki_cfg.get("query_refiner", {})
-
-        # Model selection: prefer wikipedia.query_refiner.model, else default_model
-        model_name = ref_cfg.get("model") or cfg.get("default_model")
-        return self.config_service.get_model_config(model_name)
-
-    async def refine(self, prompt: str, max_queries: Optional[int] = None) -> Tuple[List[str], Optional[str]]:
-        """Refine a user prompt into candidate Wikipedia search queries.
-
-        Returns a tuple of (queries, language) where language can be 'pl', 'en', etc., or None.
-        """
-        cfg = self.config_service.config
-        wiki_cfg = cfg.get("wikipedia", {})
-        ref_cfg = wiki_cfg.get("query_refiner", {})
-        enabled = ref_cfg.get("enabled", True)
-        max_q = max_queries or ref_cfg.get("max_queries", 3)
-
-        if not enabled:
-            return [], None
-
-        system = (
-            "You are a search query planner for Wikipedia. "
-            "Given a user's question, propose up to N short search queries suitable for Wikipedia search. "
-            "Prefer likely article titles or concise noun phrases. If relevant, infer the language ('pl' or 'en'). "
-            "Output strictly as JSON with keys: queries (list[str]), language (string|null)."
+    def _build_system_prompt(self, language: str, max_queries: int) -> str:
+        return (
+            "You are an expert at crafting concise, effective search queries for Wikipedia. "
+            "Given a user prompt and brief conversation context, propose up to "
+            f"{max_queries} distinct, high-quality queries in {language}. "
+            "Focus on disambiguation (place/person/event), synonyms, and typical article titles. "
+            "Return ONLY JSON with the key 'queries': a list of strings."
         )
 
-        user = (
-            f"User question: {prompt}\n\n"
-            f"N: {max_q}\n\n"
-            "Return JSON only."
+    def _build_user_prompt(self, prompt: str, chat_history: Optional[List[Dict]]) -> str:
+        content = [f"User prompt:\n\"{prompt}\""]
+        if chat_history:
+            recent = chat_history[-3:]
+            hist = "\n".join(
+                f"{m.get('role')}: {str(m.get('content',''))[:120]}" for m in recent
+            )
+            content.append("\nRecent conversation context:\n" + hist)
+        content.append(
+            "\nRespond ONLY with JSON of the form: {\n  \"queries\": [\"...\"]\n}"
         )
+        return "\n".join(content)
 
-        messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ]
-
-        model_config = self._get_model_config()
-
+    async def refine_queries(
+        self,
+        prompt: str,
+        chat_history: Optional[List[Dict]] = None,
+        language: str = "pl",
+        max_queries: int = 3,
+        model_name: Optional[str] = None,
+    ) -> List[str]:
+        """Return a list of refined queries for Wikipedia search."""
         try:
-            data = await self.llm_service.generate_structured_completion(
-                messages=messages,
+            system = self._build_system_prompt(language=language, max_queries=max_queries)
+            user = self._build_user_prompt(prompt, chat_history)
+
+            if not model_name:
+                model_name = (
+                    self.config_service.config
+                    .get('wikipedia', {})
+                    .get('query_refiner', {})
+                    .get('model', 'gpt-4.1-mini')
+                )
+            model_config = self.config_service.get_model_config(model_name)
+
+            result = await self.llm_service.generate_structured_completion(
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
                 model_config=model_config,
-                temperature=0.0,
+                temperature=0.2,
             )
 
-            queries = data.get("queries") or []
-            language = data.get("language")
-
-            # Normalize
+            queries = result.get('queries') or []
             if not isinstance(queries, list):
-                queries = []
-            queries = [q for q in queries if isinstance(q, str) and q.strip()]
-            if max_q and len(queries) > max_q:
-                queries = queries[:max_q]
+                return []
 
-            if language and isinstance(language, str):
-                language = language.strip().lower() or None
+            # Cleanup and dedup
+            cleaned = []
+            seen = set()
+            for q in queries[:max_queries]:
+                q2 = (str(q).strip())
+                if not q2 or q2.lower() in seen:
+                    continue
+                cleaned.append(q2)
+                seen.add(q2.lower())
 
-            self.logger.info(f"QueryRefiner produced {len(queries)} queries; lang={language}")
-            return queries, language
-
+            plugin_logger.info(
+                f"🔎 Query refiner produced {len(cleaned)} queries: " + ", ".join(cleaned)
+            )
+            return cleaned
         except Exception as e:
-            self.logger.warning(f"Query refinement failed, falling back to heuristics: {e}")
-            return [], None
+            logger.error(f"Query refinement failed: {e}", exc_info=True)
+            return []
 

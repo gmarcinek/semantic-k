@@ -9,6 +9,13 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = Field(None, description="Session identifier for conversation continuity")
 
 
+class WikipediaResearchRequest(BaseModel):
+    """Request to research a specific Wikipedia article."""
+    session_id: str = Field(..., description="Session identifier")
+    pageid: int = Field(..., description="Wikipedia page ID to research")
+    title: Optional[str] = Field(None, description="Optional article title for logging/UI")
+
+
 class ChatMessage(BaseModel):
     """Chat message model for history."""
     role: str = Field(..., description="Role: 'user' or 'assistant'")
@@ -66,6 +73,7 @@ class WikipediaSource(BaseModel):
     pageid: int = Field(..., description="Wikipedia page ID")
     extract: str = Field(..., description="Article extract/snippet")
     relevance_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Relevance score from reranker")
+    image_url: Optional[str] = Field(None, description="Optional lead image/thumbnail URL")
 
 
 class WikipediaMetadata(BaseModel):
