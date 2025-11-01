@@ -26,12 +26,6 @@ class RerankerService:
     """Service for reranking Wikipedia search results using LLM"""
 
     def __init__(self, llm_service: LLMService):
-        """
-        Initialize reranker service
-
-        Args:
-            llm_service: LLM service for making API calls
-        """
         self.llm_service = llm_service
 
     async def rerank_results(
@@ -41,18 +35,6 @@ class RerankerService:
         top_n: int = 5,
         model: str = "gpt-4o-mini"
     ) -> List[RankedResult]:
-        """
-        Rerank Wikipedia search results based on relevance to query
-
-        Args:
-            query: User's search query
-            search_results: List of Wikipedia search results
-            top_n: Number of top results to return after reranking
-            model: Model to use for reranking (default: gpt-4o-mini)
-
-        Returns:
-            List of reranked results with relevance scores
-        """
         if not search_results:
             return []
 
@@ -121,15 +103,6 @@ class RerankerService:
         self,
         search_results: List[Dict[str, str]]
     ) -> str:
-        """
-        Format search results for LLM evaluation
-
-        Args:
-            search_results: List of search results
-
-        Returns:
-            Formatted string of results
-        """
         formatted = []
         for i, result in enumerate(search_results, 1):
             formatted.append(
@@ -141,16 +114,6 @@ class RerankerService:
         return "\n".join(formatted)
 
     def _create_reranking_prompt(self, query: str, results_text: str) -> str:
-        """
-        Create prompt for LLM reranking
-
-        Args:
-            query: User's search query
-            results_text: Formatted search results
-
-        Returns:
-            Reranking prompt
-        """
         return f"""You are an expert at evaluating Wikipedia search result relevance.
 
 User Query: "{query}"
@@ -175,16 +138,6 @@ Return a JSON object with the key "ranked_results" containing ALL results provid
         original_results: List[Dict[str, str]],
         scored_results: List[Dict]
     ) -> List[RankedResult]:
-        """
-        Merge LLM scores with original search results
-
-        Args:
-            original_results: Original Wikipedia search results
-            scored_results: LLM-scored results
-
-        Returns:
-            List of RankedResult objects
-        """
         # Create lookup dictionary for scores
         score_lookup = {
             int(item["pageid"]): {

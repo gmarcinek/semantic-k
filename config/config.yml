@@ -87,8 +87,8 @@ wikipedia:
 
   # Search configuration
   search:
-    max_results: 10  # Maximum number of aggregated Wikipedia entries
-    per_query_limit: 10  # Upper bound of results considered per generated query
+    max_results: 5  # Maximum number of aggregated Wikipedia entries
+    per_query_limit: 5  # Upper bound of results considered per generated query
     extract_length: 50000  # Number of characters to extract from primary article
 
   # LLM query refiner configuration
