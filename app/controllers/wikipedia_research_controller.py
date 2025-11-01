@@ -92,7 +92,7 @@ class WikipediaResearchController:
             )
 
             # Stream response
-            yield self.sse_formatter.status_event('Kompiluje odpowiedz...')
+            yield self.sse_formatter.status_event('compiling_answer')
             chunk_size = 10
             for i in range(0, len(response_text), chunk_size):
                 chunk = response_text[i:i + chunk_size]

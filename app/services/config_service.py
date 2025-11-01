@@ -201,6 +201,26 @@ class ConfigService:
         """Get list of available model names."""
         return list(self.config['models'].keys())
 
+    def get_status_message(self, key: str) -> str:
+        """Get status message by key.
+
+        Args:
+            key: Status message key
+
+        Returns:
+            Status message string
+        """
+        if 'status_messages' not in self.config:
+            logger.warning(f"status_messages section not found in config, using key as message: {key}")
+            return key
+
+        message = self.config['status_messages'].get(key)
+        if message is None:
+            logger.warning(f"Status message key '{key}' not found in config, using key as fallback")
+            return key
+
+        return message
+
     def get_safe_config(self) -> Dict:
         """Get sanitized configuration without sensitive data.
 

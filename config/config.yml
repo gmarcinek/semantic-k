@@ -56,6 +56,29 @@ router:
     - OTHER
 
 # ============================================================================
+# STATUS MESSAGES - UI Status Updates
+# ============================================================================
+status_messages:
+  # Analysis phase
+  analyzing_query: "Analizuję zapytanie..."
+
+  # Wikipedia connection and search
+  connecting_wikipedia: "Łączę się z Wikipedią..."
+  searching_articles: "Szukam artykułów na Wikipedii..."
+  fetching_content: "Pobieram treść artykułów..."
+  gathering_data: "Zbieram dane z Wikipedii..."
+
+  # Processing phase
+  processing_results: "Przetwarzam wyniki wyszukiwania..."
+  reranking_results: "Porządkuję wyniki według trafności..."
+  comparing_results: "Analizuję i porównuję znalezione artykuły..."
+
+  # Response generation
+  thinking: "Myślę nad odpowiedzią..."
+  compiling_answer: "Kompiluję finalną odpowiedź..."
+  preparing_response: "Przygotowuję odpowiedź..."
+
+# ============================================================================
 # WIKIPEDIA CONFIGURATION
 # ============================================================================
 wikipedia:

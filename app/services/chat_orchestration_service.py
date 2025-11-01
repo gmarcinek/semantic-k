@@ -68,7 +68,7 @@ class ChatOrchestrationService:
             metadata = await self.classification_service.classify_prompt(prompt, chat_history)
 
             yield self.sse_formatter.format_sse('metadata', metadata.model_dump())
-            yield self.sse_formatter.status_event('Analizuje zapytanie...')
+            yield self.sse_formatter.status_event('analyzing_query')
 
             # Check if dangerous
             if metadata.is_dangerous > 0.8:
@@ -161,8 +161,8 @@ class ChatOrchestrationService:
         queries = await self._refine_queries_if_enabled(prompt, chat_history)
 
         # Search Wikipedia
-        yield self.sse_formatter.status_event('Lacze z Wikipedia...')
-        yield self.sse_formatter.status_event('Pobieram artykuly z Wiki...')
+        yield self.sse_formatter.status_event('connecting_wikipedia')
+        yield self.sse_formatter.status_event('searching_articles')
 
         wiki_context, wikipedia_metadata = await self.wikipedia_search_service.search_wikipedia_multi_query(
             queries=queries,
@@ -171,7 +171,7 @@ class ChatOrchestrationService:
         )
 
         if wikipedia_metadata and getattr(wikipedia_metadata, 'sources', None):
-            yield self.sse_formatter.status_event('Porownuje wyniki...')
+            yield self.sse_formatter.status_event('comparing_results')
             yield self.sse_formatter.format_sse('wikipedia', wikipedia_metadata.model_dump())
 
         # Determine response strategy
@@ -239,7 +239,7 @@ class ChatOrchestrationService:
         context = self.context_builder_service.get_conversation_context(session_id, limit=6)
         final_context = list(context)
 
-        yield self.sse_formatter.status_event('Mysle...')
+        yield self.sse_formatter.status_event('thinking')
         initial_response = await self.llm_service.generate_chat_response(
             prompt=prompt,
             chat_history=final_context,
@@ -252,8 +252,8 @@ class ChatOrchestrationService:
         wikipedia_metadata = None
 
         if wiki_queries:
-            yield self.sse_formatter.status_event('Lacze z Wikipedia...')
-            yield self.sse_formatter.status_event('Pobieram artykuly z Wiki...')
+            yield self.sse_formatter.status_event('connecting_wikipedia')
+            yield self.sse_formatter.status_event('gathering_data')
 
             wiki_context, wikipedia_metadata = await self.wikipedia_search_service.search_wikipedia_multi_query(
                 queries=wiki_queries,
@@ -262,7 +262,7 @@ class ChatOrchestrationService:
             )
 
             if wiki_context and wikipedia_metadata and getattr(wikipedia_metadata, 'sources', None):
-                yield self.sse_formatter.status_event('Porownuje wyniki...')
+                yield self.sse_formatter.status_event('reranking_results')
                 final_context.append({'role': 'system', 'content': f'Wikipedia results:\n{wiki_context}'})
                 yield self.sse_formatter.format_sse('wikipedia', wikipedia_metadata.model_dump())
 
@@ -542,7 +542,7 @@ class ChatOrchestrationService:
         Yields:
             SSE events
         """
-        yield self.sse_formatter.status_event('Kompiluje odpowiedz...')
+        yield self.sse_formatter.status_event('compiling_answer')
         chunk_size = 10
         for i in range(0, len(response_text), chunk_size):
             chunk = response_text[i:i + chunk_size]
