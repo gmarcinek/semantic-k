@@ -67,7 +67,7 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     # Initialize new specialized services
     logger.info("Initializing specialized services...")
 
-    sse_formatter_service = SSEFormatterService()
+    sse_formatter_service = SSEFormatterService(config_service)
     response_strategy_service = ResponseStrategyService(config_service)
     context_builder_service = ContextBuilderService(session_service)
 
