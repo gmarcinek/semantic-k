@@ -33,6 +33,9 @@ class ClassificationMetadata(BaseModel):
     is_continuation: float = Field(..., ge=0.0, le=1.0, description="Conversation continuation score")
     topic_change: float = Field(..., ge=0.0, le=1.0, description="Topic change detection score")
     summary: str = Field(..., description="Human-readable summary")
+    intent: str = Field(default="INFO", description="User intent: INFO or DEEP_DIVE")
+    intent_confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="Confidence of intent classification")
+    needs_wikipedia: bool = Field(default=False, description="Set true if reliable answer needs Wikipedia sources")
     advisory_results: List[AdvisoryResult] = Field(default_factory=list, description="Results from advisory tools")
 
 

@@ -4,6 +4,7 @@ import logging
 from typing import Dict, List, Optional
 
 from app.advisory_tools import SecurityAdvisor, TopicClassifier
+from app.advisory_tools.intent_classifier import IntentClassifier
 from app.models import ClassificationMetadata
 from app.utils.colored_logger import get_plugin_logger
 
@@ -28,6 +29,7 @@ class ClassificationService:
         self.tools = {
             'security': SecurityAdvisor(llm_service, config_service),
             'topic': TopicClassifier(llm_service, config_service),
+            'intent': IntentClassifier(llm_service, config_service),
         }
 
         logger.info(f"Initialized classification service with {len(self.tools)} advisory tools")
@@ -83,11 +85,13 @@ class ClassificationService:
         # Extract key metrics from tool outputs
         topic_result = tool_outputs.get('topic')
         security_result = tool_outputs.get('security')
+        intent_result = tool_outputs.get('intent')
 
         # Build classification metadata
         metadata = self._build_metadata(
             topic_result,
             security_result,
+            intent_result,
             chat_history,
             advisory_results
         )
@@ -113,6 +117,7 @@ class ClassificationService:
         self,
         topic_result,
         security_result,
+        intent_result,
         chat_history: Optional[List[Dict]],
         advisory_results: List
     ) -> ClassificationMetadata:
@@ -133,11 +138,13 @@ class ClassificationService:
             topic_relevance = topic_result.metadata.get('relevance_score', 0.5)
             is_continuation = 0.8 if topic_result.metadata.get('is_continuation', False) else 0.0
             topic_change = 0.9 if topic_result.metadata.get('topic_changed', False) else 0.1
+            needs_wikipedia = bool(topic_result.metadata.get('needs_wikipedia', False))
         else:
             topic = 'OTHER'
             topic_relevance = 0.0
             is_continuation = 0.0
             topic_change = 0.0
+            needs_wikipedia = False
 
         # Extract security information
         if security_result:
@@ -146,6 +153,14 @@ class ClassificationService:
         else:
             is_dangerous = 0.0
             security_reasoning = "Security analysis unavailable."
+
+        # Extract intent information
+        if intent_result:
+            intent = intent_result.metadata.get('intent', 'INFO')
+            intent_confidence = float(intent_result.score or 0.0)
+        else:
+            intent = 'INFO'
+            intent_confidence = 0.0
 
         # Build summary
         summary = self._build_summary(
@@ -159,6 +174,9 @@ class ClassificationService:
             is_continuation=round(is_continuation, 2),
             topic_change=round(topic_change, 2),
             summary=summary,
+            intent=intent,
+            intent_confidence=round(intent_confidence, 2),
+            needs_wikipedia=needs_wikipedia,
             advisory_results=advisory_results
         )
 

@@ -134,7 +134,8 @@ system_prompts:
         "relevance_score": <float between 0.0 and 1.0>,
         "reasoning": "<brief explanation of your classification>",
         "is_continuation": <boolean - true if this continues a previous topic>,
-        "topic_changed": <boolean - true if this is a topic change from conversation>
+        "topic_changed": <boolean - true if this is a topic change from conversation>,
+        "needs_wikipedia": <boolean - true if a reliable, well-sourced answer requires consulting Wikipedia or similar sources>
       }
 
       Classification guidelines:
@@ -143,6 +144,7 @@ system_prompts:
       - Confidence should reflect how certain you are about the classification
       - Relevance score should reflect how strongly the prompt relates to the topic
       - If no topic fits well, use "OTHER" with lower confidence
+      - Set needs_wikipedia to true when the question likely requires specific factual verification, historical/geological background, or verifiable data not guaranteed from general knowledge alone. Otherwise false.
 
       Be precise and context-aware in your classification.
 

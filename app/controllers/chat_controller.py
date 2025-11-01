@@ -87,15 +87,17 @@ class ChatController:
                 f"Generating response: topic={metadata.topic}, model={model_name}"
             )
 
-            # Get full conversation context for LLM (use entire history)
-            history_len = len(chat_history) if chat_history else 0
-            context = self.session_service.get_conversation_context(session_id, limit=history_len)
+            # Get recent conversation context for LLM (prefer recency to avoid fixation)
+            context = self.session_service.get_conversation_context(session_id, limit=6)
 
-            # Wikipedia search and reranking
+            # Decide on answer depth style
+            deep_mode = (getattr(metadata, 'intent', 'INFO') == 'DEEP_DIVE')
+
+            # Optional Wikipedia assistance (only when classifier requires it)
             wikipedia_metadata = None
             enhanced_prompt = prompt
 
-            if metadata.topic == "GENERAL_KNOWLEDGE":
+            if getattr(metadata, 'needs_wikipedia', False):
                 # Inspect chat history for previous Wikipedia metadata and topic
                 last_wiki = None
                 last_topic = None
@@ -115,7 +117,7 @@ class ChatController:
                 history_topic_changed = (last_topic is not None and last_topic != metadata.topic)
                 topic_changed = classifier_topic_changed or history_topic_changed
 
-                if last_wiki and is_continuation and not topic_changed:
+                if last_wiki and is_continuation and not topic_changed and not deep_mode:
                     # Reuse previous Wikipedia sources without re-searching
                     logger.info("Reusing previous Wikipedia sources for context (continuation detected)")
                     articles = last_wiki.get('sources', [])
@@ -177,6 +179,11 @@ Please answer the user's question based ONLY on the Wikipedia information provid
                     search_config = wiki_config.get("search", {})
                     reranking_config = wiki_config.get("reranking", {})
 
+                    # Conservative knobs; depth only affects style downstream
+                    relevance_threshold = 0.9
+                    top_n = reranking_config.get("top_n", 3)
+                    extract_len = search_config.get("extract_length", 500)
+
                     # Search Wikipedia with candidates in current language
                     search_results = []
                     used_query = None
@@ -217,7 +224,7 @@ Please answer the user's question based ONLY on the Wikipedia information provid
                             ranked_results = await self.reranker_service.rerank_results(
                                 query=used_query or prompt,
                                 search_results=search_results,
-                                top_n=reranking_config.get("top_n", 5),
+                                top_n=top_n,
                                 model=reranking_config.get("model", "gpt-4o-mini")
                             )
                         else:
@@ -231,24 +238,24 @@ Please answer the user's question based ONLY on the Wikipedia information provid
                                     relevance_score=1.0 - (i * 0.1),
                                     reasoning="Original ranking"
                                 )
-                                for i, r in enumerate(search_results[:reranking_config.get("top_n", 5)])
+                                for i, r in enumerate(search_results[:top_n])
                             ]
 
-                        # Get full article content ONLY for results with relevance >= 0.9
-                        high_conf_results = [r for r in ranked_results if (r.relevance_score or 0) >= 0.9]
+                        # Get full article content with relevance threshold (depth-aware)
+                        high_conf_results = [r for r in ranked_results if (r.relevance_score or 0) >= relevance_threshold]
                         articles = []
                         if high_conf_results:
                             pageids = [r.pageid for r in high_conf_results]
                             articles = await self.wikipedia_service.get_multiple_articles(
                                 pageids=pageids,
-                                extract_length=search_config.get("extract_length", 500)
+                                extract_length=extract_len
                             )
 
                         # Sort articles by reranked relevance (desc)
                         score_lookup = {r.pageid: r.relevance_score for r in ranked_results}
                         articles.sort(key=lambda a: score_lookup.get(a.get("pageid"), 0), reverse=True)
 
-                        # Build Wikipedia context (may be empty if no >=0.9 results)
+                        # Build Wikipedia context (may be empty if no >= threshold results)
                         wiki_context = self._build_wikipedia_context(articles)
 
                         # Enhance prompt with Wikipedia content or note low relevance
@@ -258,10 +265,10 @@ Please answer the user's question based ONLY on the Wikipedia information provid
 Wikipedia Information:
 {wiki_context}
 
-Please answer the user's question based ONLY on the Wikipedia information provided above. Include citations to the article titles."""
+Please base your answer ONLY on the Wikipedia information provided above and include citations to article titles. If information is insufficient, state that clearly."""
                         else:
                             enhanced_prompt = (
-                                f"{prompt}\n\nNote: No high-relevance (>=0.9) Wikipedia articles were found among candidates."
+                                f"{prompt}\n\nNote: No high-relevance (>= {relevance_threshold}) Wikipedia articles were found among candidates."
                             )
 
                         # Build Wikipedia metadata
@@ -396,3 +403,4 @@ Please answer the user's question based ONLY on the Wikipedia information provid
             "session_id": new_session_id,
             "message": "Session reset successfully"
         }
+

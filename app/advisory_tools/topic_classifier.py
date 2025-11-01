@@ -58,7 +58,8 @@ Analyze the user's prompt and respond with a JSON object:
     "relevance_score": <float between 0.0 and 1.0>,
     "reasoning": "<brief explanation of your classification>",
     "is_continuation": <boolean - true if this continues a previous topic>,
-    "topic_changed": <boolean - true if this is a topic change from conversation>
+    "topic_changed": <boolean - true if this is a topic change from conversation>,
+    "needs_wikipedia": <boolean - true if a reliable, well-sourced answer requires consulting Wikipedia or similar sources>
 }}
 
 Classification guidelines:
@@ -67,6 +68,7 @@ Classification guidelines:
 - Confidence should reflect how certain you are about the classification
 - Relevance score should reflect how strongly the prompt relates to the topic
 - If no topic fits well, use "OTHER" with lower confidence
+ - Set needs_wikipedia to true when the question likely requires specific factual verification, historical/geological background, or verifiable data not guaranteed from general knowledge alone. Otherwise false.
 
 Be precise and context-aware in your classification.
 """
@@ -116,6 +118,7 @@ Be precise and context-aware in your classification.
             reasoning = result.get('reasoning', 'Topic classified.')
             is_continuation = result.get('is_continuation', False)
             topic_changed = result.get('topic_changed', False)
+            needs_wikipedia = bool(result.get('needs_wikipedia', False))
 
             # Build summary
             summary = f"Topic: {topic} (confidence: {confidence:.2f}). {reasoning}"
@@ -129,7 +132,8 @@ Be precise and context-aware in your classification.
                     'confidence': confidence,
                     'relevance_score': relevance_score,
                     'is_continuation': is_continuation,
-                    'topic_changed': topic_changed
+                    'topic_changed': topic_changed,
+                    'needs_wikipedia': needs_wikipedia
                 }
             )
 
