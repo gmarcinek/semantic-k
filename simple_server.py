@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
@@ -57,6 +58,11 @@ chat_sessions: Dict[str, List[Dict]] = {}
 
 # Initialize FastAPI app
 app = FastAPI(title="Weather Chat API")
+FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
+if FRONTEND_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+else:
+    logger.warning("Frontend directory not found for static assets: %s", FRONTEND_DIR)
 
 # Add CORS middleware
 app.add_middleware(
@@ -240,10 +246,7 @@ async def generate_response(prompt: str, chat_history: List[Dict], system_prompt
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     """Serve the main HTML page."""
-    html_path = Path("frontend/index.html")
-    if not html_path.exists():
-        html_path = Path("frontend") / "index.html"
-    
+    html_path = FRONTEND_DIR / "index.html"
     if not html_path.exists():
         return HTMLResponse(content="<h1>Error: frontend/index.html not found</h1>", status_code=404)
     

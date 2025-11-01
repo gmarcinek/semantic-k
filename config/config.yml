@@ -64,8 +64,9 @@ wikipedia:
 
   # Search configuration
   search:
-    max_results: 3  # Maximum number of search results to retrieve
-    extract_length: 50000  # Number of characters to extract from each article
+    max_results: 10  # Maximum number of aggregated Wikipedia entries
+    per_query_limit: 10  # Upper bound of results considered per generated query
+    extract_length: 50000  # Number of characters to extract from primary article
 
   # LLM query refiner configuration
   query_refiner:
@@ -84,6 +85,11 @@ wikipedia:
     context: 0.6   # include in fetched context (was 0.7)
     answer: 0.8    # include explicitly in answer (was 0.9)
     perfect: 0.98  # treat as near-perfect match (was ~1.0)
+
+  # Intent resolution (primary vs context topics)
+  intent_resolution:
+    model: "gpt-4.1-mini"
+    temperature: 0.0
 
 # ============================================================================
 # ROUTING STRATEGIES - Topic to System Prompt Mapping

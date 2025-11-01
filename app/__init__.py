@@ -1,10 +1,12 @@
 """Main application package."""
 import logging
+from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.controllers import ChatController, ConfigController
 from app.router import create_router
@@ -17,6 +19,7 @@ from app.services import (
 from app.services.wikipedia_service import WikipediaService
 from app.services.reranker_service import RerankerService
 from app.services.query_refiner_service import QueryRefinerService
+from app.services.wiki_intent_service import WikipediaIntentService
 from app.utils.colored_logger import setup_colored_logging
 
 # Load environment variables
@@ -49,6 +52,7 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     wikipedia_service = WikipediaService(language=wiki_config.get("language", "pl"))
     reranker_service = RerankerService(llm_service)
     query_refiner_service = QueryRefinerService(llm_service, config_service)
+    wikipedia_intent_service = WikipediaIntentService(llm_service, config_service)
 
     # Initialize controllers
     logger.info("Initializing controllers...")
@@ -60,7 +64,8 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         config_service=config_service,
         wikipedia_service=wikipedia_service,
         reranker_service=reranker_service,
-        query_refiner_service=query_refiner_service
+        query_refiner_service=query_refiner_service,
+        wikipedia_intent_service=wikipedia_intent_service
     )
 
     config_controller = ConfigController(config_service=config_service)
@@ -71,6 +76,12 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         description="Wikipedia-based Q&A system with LLM reranking and intelligent search",
         version="2.0.0"
     )
+
+    frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+    if frontend_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
+    else:
+        logger.warning("Frontend directory not found for static assets: %s", frontend_dir)
 
     # Add CORS middleware
     app.add_middleware(

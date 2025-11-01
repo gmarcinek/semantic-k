@@ -22,13 +22,12 @@ def create_router(chat_controller, config_controller) -> APIRouter:
         Configured APIRouter
     """
     router = APIRouter()
+    frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 
     @router.get("/", response_class=HTMLResponse)
     async def read_root():
         """Serve the main HTML page."""
-        html_path = Path("frontend/index.html")
-        if not html_path.exists():
-            html_path = Path("frontend") / "index.html"
+        html_path = frontend_dir / "index.html"
 
         if not html_path.exists():
             return HTMLResponse(

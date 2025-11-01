@@ -1,5 +1,5 @@
 """Pydantic models and schemas for the application."""
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Literal
 from pydantic import BaseModel, Field
 
 
@@ -77,6 +77,22 @@ class WikipediaSource(BaseModel):
     images: List[str] = Field(default_factory=list, description="Optional list of image URLs for gallery")
 
 
+class WikipediaIntentTopic(BaseModel):
+    """Topic classification within Wikipedia intent analysis."""
+    pageid: Optional[int] = Field(None, description="Wikipedia page ID if matched to a search result")
+    title: str = Field(..., description="Resolved article title")
+    role: Literal["PRIMARY", "CONTEXT", "IRRELEVANT"] = Field(..., description="Role of the topic in the prompt")
+    reasoning: Optional[str] = Field(None, description="LLM justification for the assignment")
+
+
+class WikipediaIntentResult(BaseModel):
+    """LLM interpretation of user intent for Wikipedia retrieval."""
+    primary: Optional[WikipediaIntentTopic] = Field(None, description="Primary topic the user cares about most")
+    context: List[WikipediaIntentTopic] = Field(default_factory=list, description="Supporting/context topics")
+    ignored: List[WikipediaIntentTopic] = Field(default_factory=list, description="Irrelevant results to ignore")
+    notes: Optional[str] = Field(None, description="General reasoning provided by the LLM")
+
+
 class WikipediaMetadata(BaseModel):
     """Metadata about Wikipedia search and sources used."""
     query: str = Field(..., description="Original search query")
@@ -84,6 +100,10 @@ class WikipediaMetadata(BaseModel):
     total_results: int = Field(..., description="Total number of search results")
     reranked: bool = Field(False, description="Whether results were reranked")
     reranking_model: Optional[str] = Field(None, description="Model used for reranking")
+    primary_topic: Optional[str] = Field(None, description="Primary topic resolved from user intent")
+    primary_pageid: Optional[int] = Field(None, description="Page ID of the primary topic, if available")
+    context_topics: List[WikipediaIntentTopic] = Field(default_factory=list, description="Supporting topics metadata")
+    intent_notes: Optional[str] = Field(None, description="Narrative explanation of intent resolution")
 
 
 class ChatMessageWithSources(ChatMessage):

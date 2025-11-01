@@ -9,6 +9,8 @@ from .schemas import (
     WikipediaMetadata,
     ChatMessageWithSources,
     WikipediaResearchRequest,
+    WikipediaIntentResult,
+    WikipediaIntentTopic,
 )
 
 __all__ = [
@@ -21,4 +23,6 @@ __all__ = [
     "WikipediaMetadata",
     "ChatMessageWithSources",
     "WikipediaResearchRequest",
+    "WikipediaIntentResult",
+    "WikipediaIntentTopic",
 ]
