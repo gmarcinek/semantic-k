@@ -78,11 +78,10 @@ class LLMService:
             elif 'max_completion_tokens' in model_config:
                 api_params['max_completion_tokens'] = model_config['max_completion_tokens']
 
-            # Temperature handling (GPT-5 doesn't support it)
+            # Temperature handling
             if temperature is not None:
-                if model_config.get('model_id') != 'gpt-5':
-                    api_params['temperature'] = temperature
-            elif 'temperature' in model_config and model_config.get('model_id') != 'gpt-5':
+                api_params['temperature'] = temperature
+            elif 'temperature' in model_config:
                 api_params['temperature'] = model_config['temperature']
 
             # Response format (for structured outputs)

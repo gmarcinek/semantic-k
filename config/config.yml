@@ -1,11 +1,29 @@
 # Semantic Kernel Wikipedia Q&A Configuration
 
 # Default model to use
-default_model: "gpt-5"
+default_model: "gpt-4.1"
 
 # LLM Models Configuration
 models:
-  # OpenAI GPT-5
+  # OpenAI GPT-4.1 - Fast responses with temperature 0.0
+  gpt-4.1:
+    provider: "openai"
+    model_id: "gpt-4.1"
+    api_key_env: "OPENAI_GPT41_API_KEY"  # Separate API key for GPT-4.1 family
+    temperature: 0.0  # Deterministic responses
+    max_completion_tokens: 16384
+    max_input_tokens: 128000
+
+  # GPT-4.1-mini for reranking and advisory tools
+  gpt-4.1-mini:
+    provider: "openai"
+    model_id: "gpt-4.1-mini"
+    api_key_env: "OPENAI_GPT41_API_KEY"  # Same API key as gpt-4.1
+    temperature: 0.0  # Deterministic responses
+    max_completion_tokens: 16384
+    max_input_tokens: 128000
+
+  # OpenAI GPT-5 (kept for reference, not used by default)
   gpt-5:
     provider: "openai"
     model_id: "gpt-5"
@@ -14,7 +32,7 @@ models:
     max_input_tokens: 272000  # 272k input tokens
     max_output_tokens: 128000  # 128k output tokens (includes reasoning tokens)
 
-  # GPT-4o mini for reranking
+  # GPT-4o mini (kept for backward compatibility)
   gpt-4o-mini:
     provider: "openai"
     model_id: "gpt-4o-mini"
@@ -52,7 +70,7 @@ wikipedia:
   # Reranking configuration
   reranking:
     enabled: true
-    model: "gpt-4o-mini"  # Model to use for reranking
+    model: "gpt-4.1-mini"  # Model to use for reranking
     top_n: 5  # Number of top results to return after reranking
 
 # ============================================================================
@@ -61,11 +79,11 @@ wikipedia:
 routing_strategies:
   - name: GENERAL_KNOWLEDGE
     system_prompt: WIKIPEDIA_V1
-    preferred_model: "gpt-5"
+    preferred_model: "gpt-4.1"
 
   - name: OTHER
     system_prompt: OTHER_V1
-    preferred_model: "gpt-5"
+    preferred_model: "gpt-4.1"
 
 # ============================================================================
 # SYSTEM PROMPTS - Actual Prompt Definitions
@@ -161,11 +179,11 @@ routing:
   rules:
     - name: "GENERAL_KNOWLEDGE"
       keywords: []  # All queries go to Wikipedia search
-      preferred_model: "gpt-5"
+      preferred_model: "gpt-4.1"
       system_prompt: "You are a Wikipedia-based Q&A assistant. Answer questions using only Wikipedia information."
 
   # Default fallback model when no rules match
-  fallback_model: "gpt-5"
+  fallback_model: "gpt-4.1"
 
 # Logging Configuration
 logging:
