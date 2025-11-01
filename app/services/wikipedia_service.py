@@ -17,12 +17,12 @@ class WikipediaService:
 
     BASE_URL = "https://en.wikipedia.org/w/api.php"
 
-    def __init__(self, language: str = "en"):
+    def __init__(self, language: str = "pl"):
         """
         Initialize Wikipedia service
 
         Args:
-            language: Wikipedia language code (default: 'en')
+            language: Wikipedia language code (default: 'pl')
         """
         self.language = language
         self.base_url = f"https://{language}.wikipedia.org/w/api.php"
@@ -359,7 +359,8 @@ class WikipediaService:
                                     "extract": page.get("extract", ""),
                                     "url": page.get("fullurl", ""),
                                     "pageid": page.get("pageid", ""),
-                                    "image_url": None
+                                    "image_url": None,
+                                    "images": []
                                 })
 
                         # Fallback to REST summary for any empty extracts
@@ -372,6 +373,12 @@ class WikipediaService:
                                         article["url"] = summary.get("url", "")
                                     if summary.get("thumbnail_url"):
                                         article["image_url"] = summary.get("thumbnail_url")
+                            # Fetch media list (images) for gallery
+                            if article.get("title"):
+                                media = await self._fetch_media_by_title(article["title"])
+                                if media:
+                                    # limit to first 12 to keep payload moderate
+                                    article["images"] = media[:12]
 
                         # Log fetched articles
                         plugin_logger.info(f"📖 Wikipedia fetched {len(results)} full articles:")
@@ -446,6 +453,43 @@ class WikipediaService:
                     return {"extract": extract, "url": page_url, "thumbnail_url": thumb}
         except Exception:
             return None
+
+    async def _fetch_media_by_title(self, title: str) -> Optional[List[str]]:
+        """Fetch list of image URLs for a page via REST media-list endpoint.
+
+        Returns a list of direct image URLs (strings)."""
+        import urllib.parse
+        title_enc = urllib.parse.quote(title)
+        url = f"https://{self.language}.wikipedia.org/api/rest_v1/page/media-list/{title_enc}"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=self._headers) as resp:
+                    if resp.status != 200:
+                        return []
+                    content_type = resp.headers.get("Content-Type", "").lower()
+                    if "application/json" not in content_type:
+                        return []
+                    data = await resp.json()
+                    items = data.get("items", [])
+                    images: List[str] = []
+                    for it in items:
+                        if it.get("type") != "image":
+                            continue
+                        # prefer original source
+                        original = (it.get("original") or {}).get("source")
+                        if original:
+                            images.append(original)
+                            continue
+                        # else take largest srcset item
+                        srcset = it.get("srcset") or []
+                        if srcset:
+                            # pick the largest available
+                            src = sorted(srcset, key=lambda s: s.get("scale", 0), reverse=True)[0].get("src")
+                            if src:
+                                images.append(src)
+                    return images
+        except Exception:
+            return []
 
     async def get_summary_by_title(self, title: str) -> Optional[Dict[str, str]]:
         """Public method to fetch page summary with optional thumbnail.

@@ -70,13 +70,13 @@ wikipedia:
   # LLM query refiner configuration
   query_refiner:
     enabled: true
-    model: "gpt-4.1"
+    model: "gpt-4.1-mini"
     max_queries: 3
 
   # Reranking configuration
   reranking:
     enabled: true
-    model: "gpt-4.1"  # Model to use for reranking
+    model: "gpt-4.1-mini"  # Model to use for reranking
     top_n: 3  # Number of top results to return after reranking
 
   # Relevance thresholds (tunable)

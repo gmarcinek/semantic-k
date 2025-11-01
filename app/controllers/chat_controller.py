@@ -151,7 +151,9 @@ class ChatController:
                             f"Napisz wprost: Na Wikipedii jest artykuł '{title_or}', który opisuje to dokładnie. "
                             "Przygotuj odpowiedź bazując na treści artykułu (z kontekstu systemowego), dodaj 1–2 krótkie cytaty w bloku cytatu i podaj link. "
                             "Jeśli jest obraz/miniatura, wspomnij o nim i podaj URL obrazu. "
-                            "Zachowaj zwięzłość i nie wymyślaj faktów."
+                            "Zachowaj zwięzłość i nie wymyślaj faktów. "
+                            "Sformatuj odpowiedź jako prosty HTML (użyj <p>, <ul>, <li>, <a>, <blockquote>). "
+                            "Jeśli w kontekście jest linia 'Image: <URL>', możesz dodać <figure><img src=...><figcaption> z podpisem."
                         )
 
                         response_text = await self.llm_service.generate_chat_response(
@@ -173,7 +175,8 @@ class ChatController:
                         ])
                         prompt_text = (
                             "Podsumuj odpowiedź bazując na wynikach z Wikipedii (patrz kontekst systemowy). "
-                            "W treści wpleć odniesienia do źródeł, a na końcu wypisz je w formie listy:\n"
+                            "W treści wpleć odniesienia do źródeł, a na końcu wypisz je w formie listy. "
+                            "Sformatuj odpowiedź jako prosty HTML (użyj <p>, <ul>, <li>, <a>, <blockquote>).\n"
                             f"{cite_lines}"
                         )
 
@@ -186,8 +189,9 @@ class ChatController:
                     else:
                         # No Wikipedia sources found despite needs_wikipedia → inform and propose next steps
                         nores_prompt = (
-                            "Nie znaleziono wiarygodnych wyników w Wikipedii dla tego zapytania. "
-                            "Napisz krótko, że brak dopasowań i zaproponuj 2–3 alternatywne zapytania, które mogę wyszukać."
+                            "Sformatuj odpowiedź jako prosty HTML. "
+                            "<p>Nie znaleziono wiarygodnych wyników w Wikipedii dla tego zapytania.</p> "
+                            "<p>Zaproponuj alternatywne zapytania:</p><ul><li>…</li><li>…</li><li>…</li></ul>"
                         )
                         response_text = await self.llm_service.generate_chat_response(
                             prompt=nores_prompt,
@@ -273,7 +277,9 @@ class ChatController:
                                 "Na Wikipedii jest artykuł, który opisuje to dokładnie. "
                                 f"Napisz wprost: Na Wikipedii jest artykuł '{title_or}', który opisuje to dokładnie. "
                                 "Przygotuj kompletną odpowiedź bazując na artykule (z kontekstu), dodaj 1–2 krótkie cytaty i link. "
-                                "Wspomnij o obrazie, jeśli dostępny, i podaj URL obrazu."
+                                "Wspomnij o obrazie, jeśli dostępny, i podaj URL obrazu. "
+                                "Sformatuj odpowiedź jako prosty HTML (użyj <p>, <ul>, <li>, <a>, <blockquote>). "
+                                "Jeśli w kontekście jest linia 'Image: <URL>', możesz dodać <figure><img src=...><figcaption>."
                             )
 
                             response_text = await self.llm_service.generate_chat_response(
@@ -293,7 +299,8 @@ class ChatController:
                             ])
                             prompt_text = (
                                 "Based on the Wikipedia results above, provide a complete answer to the user's question. "
-                                "UWZGLĘDNIJ w treści odwołania do tych wysokotrafnych źródeł:\n"
+                                "UWZGLĘDNIJ w treści odwołania do tych wysokotrafnych źródeł. "
+                                "Sformatuj odpowiedź jako prosty HTML (użyj <p>, <ul>, <li>, <a>, <blockquote>).\n"
                                 f"{cite_lines}\n"
                             )
                             response_text = await self.llm_service.generate_chat_response(
@@ -450,7 +457,8 @@ class ChatController:
                     pageid=article.get('pageid', 0),
                     extract=article.get('extract', ''),
                     relevance_score=rel_score,
-                    image_url=article.get('image_url')
+                    image_url=article.get('image_url'),
+                    images=article.get('images', [])
                 ))
 
         if not all_articles:
@@ -529,16 +537,53 @@ class ChatController:
                 yield self._format_sse('done', {})
                 return
 
+            # Attach image if summary provides a thumbnail
+            try:
+                summary_extra = await self.wikipedia_service.get_summary_by_title(article.get('title', ''))
+                if summary_extra and summary_extra.get('thumbnail_url'):
+                    article['image_url'] = summary_extra['thumbnail_url']
+            except Exception:
+                pass
+
             # Prepare Wikipedia context
             wiki_context = self._build_wikipedia_context([article])
             # Use a clean, detached context limited to the article only
             final_context = [{'role': 'system', 'content': f'Wikipedia results (detached):\n{wiki_context}'}]
 
+            # Also fetch gallery of images for this article
+            try:
+                media = await self.wikipedia_service._fetch_media_by_title(article.get('title', ''))
+                if media:
+                    article['images'] = media[:20]
+            except Exception:
+                article['images'] = article.get('images', [])
+
+            # Send wikipedia event so UI can render image thumbnails gallery
+            try:
+                wm = WikipediaMetadata(
+                    query=title or article.get('title', ''),
+                    sources=[WikipediaSource(
+                        title=article.get('title', ''),
+                        url=article.get('url', ''),
+                        pageid=article.get('pageid', 0),
+                        extract=article.get('extract', ''),
+                        relevance_score=1.0,
+                        image_url=article.get('image_url'),
+                        images=article.get('images', [])
+                    )],
+                    total_results=1,
+                    reranked=False
+                )
+                yield self._format_sse('wikipedia', wm.model_dump())
+            except Exception:
+                pass
+
             # Generate referat based on full article
             prompt = (
                 "Na podstawie pełnego artykułu z Wikipedii w kontekście systemowym powyżej przygotuj zwięzły, dobrze ustrukturyzowany referat o tym HAŚLE. "
                 "Nie odwołuj się do wcześniejszej rozmowy. Nie dodawaj nic spoza artykułu. "
-                "Cytuj źródło w formie: Według Wikipedii (artykuł: {title_or})."
+                "Cytuj źródło w formie: Według Wikipedii (artykuł: {title_or}). "
+                "Sformatuj odpowiedź jako prosty HTML (użyj <h2>, <p>, <ul>, <li>, <a>, <blockquote>). Jeśli dostępny obraz (linia 'Image: <URL>'), możesz dodać <figure><img src=...><figcaption>."
             )
             title_or = (title or article.get('title') or '').strip()
             prompt = prompt.replace('{title_or}', title_or)
