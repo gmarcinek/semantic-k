@@ -11,6 +11,9 @@ from .schemas import (
     WikipediaResearchRequest,
     WikipediaIntentResult,
     WikipediaIntentTopic,
+    RemoveArticleRequest,
+    GetArticlesRequest,
+    ArticlesResponse,
 )
 
 __all__ = [
@@ -25,4 +28,7 @@ __all__ = [
     "WikipediaResearchRequest",
     "WikipediaIntentResult",
     "WikipediaIntentTopic",
+    "RemoveArticleRequest",
+    "GetArticlesRequest",
+    "ArticlesResponse",
 ]

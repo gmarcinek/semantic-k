@@ -6,7 +6,14 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 
-from app.models import ChatRequest, SessionResetRequest, WikipediaResearchRequest
+from app.models import (
+    ChatRequest,
+    SessionResetRequest,
+    WikipediaResearchRequest,
+    RemoveArticleRequest,
+    GetArticlesRequest,
+    ArticlesResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -94,5 +101,29 @@ def create_router(chat_controller, config_controller) -> APIRouter:
             Sanitized configuration
         """
         return config_controller.get_config()
+
+    @router.post("/api/articles/get")
+    async def get_articles(request: GetArticlesRequest):
+        """Get all Wikipedia articles for a session.
+
+        Args:
+            request: GetArticlesRequest with session_id
+
+        Returns:
+            ArticlesResponse with list of articles
+        """
+        return await chat_controller.handle_get_articles(request)
+
+    @router.post("/api/articles/remove")
+    async def remove_article(request: RemoveArticleRequest):
+        """Remove a Wikipedia article from session.
+
+        Args:
+            request: RemoveArticleRequest with session_id and pageid
+
+        Returns:
+            Response with success status
+        """
+        return await chat_controller.handle_remove_article(request)
 
     return router

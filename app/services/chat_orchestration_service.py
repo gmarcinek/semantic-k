@@ -572,6 +572,12 @@ class ChatOrchestrationService:
         if wikipedia_metadata:
             user_metadata['wikipedia'] = wikipedia_metadata.model_dump()
 
+            # Add Wikipedia articles to session
+            if hasattr(wikipedia_metadata, 'sources') and wikipedia_metadata.sources:
+                for source in wikipedia_metadata.sources:
+                    article_data = source.model_dump()
+                    self.session_service.add_wikipedia_article(session_id, article_data)
+
         self.session_service.add_message(
             session_id=session_id,
             role='user',

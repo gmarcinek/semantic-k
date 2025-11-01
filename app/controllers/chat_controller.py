@@ -3,7 +3,13 @@ import logging
 from typing import AsyncGenerator, Dict, Optional
 from uuid import uuid4
 
-from app.models import ChatRequest, WikipediaResearchRequest
+from app.models import (
+    ChatRequest,
+    WikipediaResearchRequest,
+    RemoveArticleRequest,
+    GetArticlesRequest,
+    ArticlesResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,3 +87,37 @@ class ChatController:
             Response dict with new session_id
         """
         return await self.session_controller.handle_reset(session_id)
+
+    async def handle_get_articles(self, request: GetArticlesRequest) -> ArticlesResponse:
+        """Handle get articles request.
+
+        Args:
+            request: GetArticlesRequest with session_id
+
+        Returns:
+            ArticlesResponse with list of articles
+        """
+        articles = self.session_service.get_wikipedia_articles(request.session_id)
+        logger.info(f"Retrieved {len(articles)} articles for session {request.session_id}")
+        return ArticlesResponse(articles=articles)
+
+    async def handle_remove_article(self, request: RemoveArticleRequest) -> Dict:
+        """Handle remove article request.
+
+        Args:
+            request: RemoveArticleRequest with session_id and pageid
+
+        Returns:
+            Response dict with success status
+        """
+        removed = self.session_service.remove_wikipedia_article(
+            request.session_id,
+            request.pageid
+        )
+
+        if removed:
+            logger.info(f"Removed article {request.pageid} from session {request.session_id}")
+            return {"success": True, "message": "Article removed successfully"}
+        else:
+            logger.warning(f"Article {request.pageid} not found in session {request.session_id}")
+            return {"success": False, "message": "Article not found"}

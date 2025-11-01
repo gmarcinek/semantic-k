@@ -18,42 +18,18 @@
 
         <!-- Main Content -->
         <div class="main-content">
-            <!-- Left status/meta column -->
-            <div class="status-column">
-                <div class="mb-3">
-                    <div class="mb-2"><strong>Topic</strong></div>
-                    <div id="metaTopic">-</div>
+            <!-- Left column: Wikipedia Articles List -->
+            <div class="articles-column">
+                <div class="articles-header">
+                    <h5>📚 Artykuły Wikipedii</h5>
+                    <small class="text-muted">Przeglądane w tej sesji</small>
                 </div>
-                <div class="mb-3">
-                    <div class="mb-1">Zgodność z tematem <span id="metaRelevanceText" class="ms-1">0%</span></div>
-                    <div class="progress">
-                        <div class="progress-bar bg-info" id="metaRelevance" style="width: 0%"></div>
+                <div class="articles-list" id="articlesList">
+                    <div class="text-center text-muted p-3">
+                        <p>Brak artykułów</p>
+                        <small>Artykuły Wikipedii pojawią się tutaj po zadaniu pytania</small>
                     </div>
                 </div>
-                <div class="mb-3">
-                    <div class="mb-1">Bezpieczeństwo <span id="metaDangerText" class="ms-1">0%</span></div>
-                    <div class="progress">
-                        <div class="progress-bar bg-warning" id="metaDanger" style="width: 0%"></div>
-                    </div>
-                </div>
-                <div class="mb-3">
-                    <div class="mb-1">Kontynuacja <span id="metaContinuationText" class="ms-1">0%</span></div>
-                    <div class="progress">
-                        <div class="progress-bar bg-success" id="metaContinuation" style="width: 0%"></div>
-                    </div>
-                </div>
-                <div class="mb-3">
-                    <div class="mb-1">Zmiana tematu <span id="metaTopicChangeText" class="ms-1">0%</span></div>
-                    <div class="progress">
-                        <div class="progress-bar bg-primary" id="metaTopicChange" style="width: 0%"></div>
-                    </div>
-                </div>
-                <div class="mb-3">
-                    <div class="mb-2"><strong>Podsumowanie</strong></div>
-                    <div id="metaSummaryLeft" class="text-muted">Oczekiwanie na pierwszą wiadomość...</div>
-                </div>
-
-                
             </div>
             <!-- Chat Column -->
             <div class="chat-column">

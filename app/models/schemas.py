@@ -109,3 +109,19 @@ class WikipediaMetadata(BaseModel):
 class ChatMessageWithSources(ChatMessage):
     """Chat message with Wikipedia sources."""
     wikipedia_metadata: Optional[WikipediaMetadata] = Field(None, description="Wikipedia source information")
+
+
+class RemoveArticleRequest(BaseModel):
+    """Request to remove an article from session."""
+    session_id: str = Field(..., description="Session identifier")
+    pageid: int = Field(..., description="Wikipedia page ID to remove")
+
+
+class GetArticlesRequest(BaseModel):
+    """Request to get articles for a session."""
+    session_id: str = Field(..., description="Session identifier")
+
+
+class ArticlesResponse(BaseModel):
+    """Response with list of Wikipedia articles."""
+    articles: List[WikipediaSource] = Field(default_factory=list, description="List of Wikipedia articles in session")
