@@ -215,9 +215,9 @@ async def generate_response(prompt: str, chat_history: List[Dict], system_prompt
         # Add optional parameters if present in config
         if 'max_completion_tokens' in model_config:
             api_params['max_completion_tokens'] = model_config['max_completion_tokens']
-        
-        # Only add temperature if model supports it (GPT-5 doesn't)
-        if 'temperature' in model_config and model_config.get('model_id') != 'gpt-5':
+
+        # Add temperature if present in config
+        if 'temperature' in model_config:
             api_params['temperature'] = model_config['temperature']
         
         response = await client.chat.completions.create(**api_params)
