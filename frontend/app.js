@@ -8,6 +8,7 @@ const userPromptInput = document.getElementById('userPrompt');
 const chatMessages = document.getElementById('chatMessages');
 const sendBtn = document.getElementById('sendBtn');
 const resetBtn = document.getElementById('resetBtn');
+const articlesList = document.getElementById('articlesList');
 
 // Metadata elements
 const metaTopic = document.getElementById('metaTopic');
@@ -146,7 +147,172 @@ function updateMetadata(metadata) {
     metaSummary.textContent = metadata.summary;
 }
 
-// Display Wikipedia sources
+// Add articles to left column
+function addArticlesToLeftColumn(wikipediaData) {
+    if (!wikipediaData || !wikipediaData.sources || !Array.isArray(wikipediaData.sources)) {
+        return;
+    }
+
+    // Clear "no articles" placeholder if present
+    if (articlesList.querySelector('.text-center.text-muted')) {
+        articlesList.innerHTML = '';
+    }
+
+    const contextTopics = Array.isArray(wikipediaData.context_topics) ? wikipediaData.context_topics : [];
+    const primaryPageId = typeof wikipediaData.primary_pageid === 'number' ? wikipediaData.primary_pageid : null;
+
+    wikipediaData.sources.forEach((source) => {
+        // Check if article already exists in the list
+        const existingArticle = articlesList.querySelector(`[data-pageid="${source.pageid}"]`);
+        if (existingArticle) {
+            return; // Skip if already added
+        }
+
+        const articleItem = document.createElement('div');
+        articleItem.className = 'article-item';
+        articleItem.setAttribute('data-pageid', source.pageid);
+
+        // Header with title and remove button
+        const headerDiv = document.createElement('div');
+        headerDiv.className = 'article-item-header';
+
+        const titleLink = document.createElement('a');
+        titleLink.href = source.url;
+        titleLink.target = '_blank';
+        titleLink.className = 'article-item-title';
+        titleLink.textContent = source.title;
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'article-item-remove';
+        removeBtn.textContent = 'Usuń';
+        removeBtn.addEventListener('click', () => removeArticle(source.pageid));
+
+        headerDiv.appendChild(titleLink);
+        headerDiv.appendChild(removeBtn);
+        articleItem.appendChild(headerDiv);
+
+        // Role badges (PRIMARY or CONTEXT)
+        const sourcePageId = typeof source.pageid === 'number' ? source.pageid : (source.pageid ? Number(source.pageid) : null);
+        const isPrimary = primaryPageId !== null && sourcePageId !== null && primaryPageId === sourcePageId;
+        const contextMatch = contextTopics.find(ctx => {
+            const ctxPageId = typeof ctx.pageid === 'number' ? ctx.pageid : (ctx.pageid ? Number(ctx.pageid) : null);
+            if (ctxPageId && sourcePageId) {
+                return ctxPageId === sourcePageId;
+            }
+            if (ctx.title && source.title) {
+                return ctx.title.toLowerCase() === source.title.toLowerCase();
+            }
+            return false;
+        });
+
+        if (isPrimary || contextMatch) {
+            const roleBadge = document.createElement('span');
+            roleBadge.className = `badge ${isPrimary ? 'badge-role-primary' : 'badge-role-context'} me-1`;
+            roleBadge.textContent = isPrimary ? 'GŁÓWNE HASŁO' : 'KONTEKST';
+            roleBadge.style.fontSize = '0.7rem';
+            articleItem.appendChild(roleBadge);
+        }
+
+        // Relevance score
+        if (source.relevance_score !== null && source.relevance_score !== undefined) {
+            const relevanceDiv = document.createElement('div');
+            relevanceDiv.className = 'article-item-relevance';
+            const rel = Math.round(source.relevance_score * 100);
+            relevanceDiv.textContent = `Relevance: ${rel}%`;
+            articleItem.appendChild(relevanceDiv);
+        }
+
+        // Extract/snippet
+        if (source.extract) {
+            const extractDiv = document.createElement('div');
+            extractDiv.className = 'article-item-extract';
+            const excerpt = source.extract.length > 150 ? `${source.extract.substring(0, 150)}…` : source.extract;
+            extractDiv.textContent = excerpt;
+            articleItem.appendChild(extractDiv);
+        }
+
+        // Images
+        const images = Array.isArray(source.images) ? source.images : (source.image_url ? [source.image_url] : []);
+        if (images.length > 0) {
+            const imagesDiv = document.createElement('div');
+            imagesDiv.className = 'article-item-images';
+            images.slice(0, 3).forEach((url) => { // Limit to 3 images in sidebar
+                const thumb = document.createElement('img');
+                thumb.src = url;
+                thumb.alt = source.title;
+                thumb.addEventListener('click', () => openImageModal(url, source.title));
+                imagesDiv.appendChild(thumb);
+            });
+            articleItem.appendChild(imagesDiv);
+        }
+
+        // Action buttons
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'article-item-actions';
+
+        const exploreBtn = document.createElement('button');
+        exploreBtn.className = 'btn btn-primary btn-sm';
+        exploreBtn.textContent = 'Zbadaj';
+        exploreBtn.addEventListener('click', () => {
+            researchArticle(source.pageid, source.title);
+        });
+
+        const viewBtn = document.createElement('button');
+        viewBtn.className = 'btn btn-secondary btn-sm';
+        viewBtn.textContent = 'Zobacz';
+        viewBtn.addEventListener('click', () => {
+            window.open(source.url, '_blank');
+        });
+
+        actionsDiv.appendChild(exploreBtn);
+        actionsDiv.appendChild(viewBtn);
+        articleItem.appendChild(actionsDiv);
+
+        articlesList.appendChild(articleItem);
+    });
+}
+
+// Remove article from session and UI
+async function removeArticle(pageid) {
+    try {
+        const response = await fetch('/api/articles/remove', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                session_id: sessionId,
+                pageid: pageid
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            // Remove from UI
+            const articleItem = articlesList.querySelector(`[data-pageid="${pageid}"]`);
+            if (articleItem) {
+                articleItem.remove();
+            }
+
+            // If no articles left, show placeholder
+            if (articlesList.children.length === 0) {
+                articlesList.innerHTML = `
+                    <div class="text-center text-muted p-3">
+                        <p>Brak artykułów</p>
+                        <small>Artykuły Wikipedii pojawią się tutaj po zadaniu pytania</small>
+                    </div>
+                `;
+            }
+        } else {
+            console.error('Failed to remove article:', result.message);
+        }
+    } catch (error) {
+        console.error('Error removing article:', error);
+    }
+}
+
+// Display Wikipedia sources (DEPRECATED - now in left column)
 function displayWikipediaSources(wikipediaData) {
     const sourcesDiv = document.createElement('div');
     sourcesDiv.className = 'wikipedia-sources';
@@ -472,7 +638,7 @@ async function sendMessage(prompt) {
                             : (data.data && data.data.message) || '';
                         updateTypingStatus(statusMessage);
                     } else if (data.type === 'wikipedia') {
-                        displayWikipediaSources(data.data);
+                        addArticlesToLeftColumn(data.data);
                         pendingGalleryData = data.data;
                     } else if (data.type === 'chunk') {
                         // Remove typing indicator on first chunk
@@ -544,6 +710,14 @@ async function resetSession() {
                 <div class="text-center text-muted">
                     <p>👋 Witaj! Jestem asystentem Wikipedia Q&A.</p>
                     <p>Zadaj mi pytanie, a znajdę dla Ciebie informacje z Wikipedii.</p>
+                </div>
+            `;
+
+            // Clear articles list
+            articlesList.innerHTML = `
+                <div class="text-center text-muted p-3">
+                    <p>Brak artykułów</p>
+                    <small>Artykuły Wikipedii pojawią się tutaj po zadaniu pytania</small>
                 </div>
             `;
 

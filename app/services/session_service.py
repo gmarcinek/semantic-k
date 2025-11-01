@@ -14,6 +14,7 @@ class SessionService:
     def __init__(self):
         """Initialize session service."""
         self._sessions: Dict[str, List[Dict]] = {}
+        self._session_articles: Dict[str, List[Dict]] = {}  # Wikipedia articles per session
 
     def create_session(self) -> str:
         """Create a new session.
@@ -23,6 +24,7 @@ class SessionService:
         """
         session_id = str(uuid4())
         self._sessions[session_id] = []
+        self._session_articles[session_id] = []
         logger.info(f"Created new session: {session_id}")
         return session_id
 
@@ -86,6 +88,8 @@ class SessionService:
         """
         if session_id and session_id in self._sessions:
             del self._sessions[session_id]
+            if session_id in self._session_articles:
+                del self._session_articles[session_id]
             logger.info(f"Reset session {session_id}")
 
         return self.create_session()
@@ -135,3 +139,70 @@ class SessionService:
                 })
 
         return context
+
+    def add_wikipedia_article(self, session_id: str, article: Dict) -> None:
+        """Add a Wikipedia article to session.
+
+        Args:
+            session_id: Session identifier
+            article: Article data (pageid, title, url, extract, etc.)
+        """
+        if session_id not in self._session_articles:
+            self._session_articles[session_id] = []
+
+        # Check if article already exists (by pageid)
+        pageid = article.get('pageid')
+        if pageid:
+            existing = [a for a in self._session_articles[session_id] if a.get('pageid') == pageid]
+            if existing:
+                logger.debug(f"Article {pageid} already exists in session {session_id}")
+                return
+
+        self._session_articles[session_id].append(article)
+        logger.debug(f"Added article {article.get('title')} to session {session_id}")
+
+    def get_wikipedia_articles(self, session_id: str) -> List[Dict]:
+        """Get all Wikipedia articles for a session.
+
+        Args:
+            session_id: Session identifier
+
+        Returns:
+            List of Wikipedia articles
+        """
+        if session_id not in self._session_articles:
+            self._session_articles[session_id] = []
+
+        return self._session_articles[session_id]
+
+    def remove_wikipedia_article(self, session_id: str, pageid: int) -> bool:
+        """Remove a Wikipedia article from session.
+
+        Args:
+            session_id: Session identifier
+            pageid: Wikipedia page ID to remove
+
+        Returns:
+            True if article was removed, False if not found
+        """
+        if session_id not in self._session_articles:
+            return False
+
+        articles = self._session_articles[session_id]
+        original_count = len(articles)
+        self._session_articles[session_id] = [a for a in articles if a.get('pageid') != pageid]
+
+        removed = len(self._session_articles[session_id]) < original_count
+        if removed:
+            logger.info(f"Removed article {pageid} from session {session_id}")
+        return removed
+
+    def clear_wikipedia_articles(self, session_id: str) -> None:
+        """Clear all Wikipedia articles from session.
+
+        Args:
+            session_id: Session identifier
+        """
+        if session_id in self._session_articles:
+            self._session_articles[session_id] = []
+            logger.info(f"Cleared all articles from session {session_id}")
