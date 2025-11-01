@@ -68,15 +68,31 @@ function addMessage(role, content) {
 
 // Add typing indicator
 function addTypingIndicator() {
+    removeTypingIndicator();
+
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message message-assistant';
     messageDiv.id = 'typingIndicator';
 
+    const bubbleDiv = document.createElement('div');
+    bubbleDiv.className = 'message-bubble';
+
     const typingDiv = document.createElement('div');
     typingDiv.className = 'typing-indicator';
-    typingDiv.innerHTML = '<span></span><span></span><span></span>';
 
-    messageDiv.appendChild(typingDiv);
+    const dotsDiv = document.createElement('div');
+    dotsDiv.className = 'typing-dots';
+    dotsDiv.innerHTML = '<span></span><span></span><span></span>';
+
+    const statusDiv = document.createElement('div');
+    statusDiv.className = 'typing-status';
+    statusDiv.textContent = 'Pracuje...';
+
+    typingDiv.appendChild(dotsDiv);
+    typingDiv.appendChild(statusDiv);
+    bubbleDiv.appendChild(typingDiv);
+    messageDiv.appendChild(bubbleDiv);
+
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
@@ -87,6 +103,15 @@ function removeTypingIndicator() {
     if (indicator) {
         indicator.remove();
     }
+}
+
+// Update typing indicator status text
+function updateTypingStatus(message) {
+    const statusEl = document.querySelector('#typingIndicator .typing-status');
+    if (!statusEl) return;
+    const hasMessage = typeof message === 'string' && message.trim().length > 0;
+    statusEl.textContent = hasMessage ? message : 'Pracuje...';
+    statusEl.style.display = hasMessage ? 'block' : 'none';
 }
 
 // Update metadata footer
@@ -340,6 +365,11 @@ async function researchArticle(pageid, title) {
                     const data = JSON.parse(line.slice(6));
                     if (data.type === 'wikipedia') {
                         pendingGalleryData = data.data;
+                    } else if (data.type === 'status') {
+                        const statusMessage = typeof data.data === 'string'
+                            ? data.data
+                            : (data.data && data.data.message) || '';
+                        updateTypingStatus(statusMessage);
                     } else if (data.type === 'chunk') {
                         if (!assistantMessage) {
                             removeTypingIndicator();
@@ -434,6 +464,11 @@ async function sendMessage(prompt) {
 
                     if (data.type === 'metadata') {
                         updateMetadata(data.data);
+                    } else if (data.type === 'status') {
+                        const statusMessage = typeof data.data === 'string'
+                            ? data.data
+                            : (data.data && data.data.message) || '';
+                        updateTypingStatus(statusMessage);
                     } else if (data.type === 'wikipedia') {
                         displayWikipediaSources(data.data);
                         pendingGalleryData = data.data;

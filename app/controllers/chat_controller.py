@@ -76,6 +76,7 @@ class ChatController:
 
             # Send metadata to client
             yield self._format_sse('metadata', metadata.model_dump())
+            yield self._status_event('Analizuje zapytanie...')
 
             # Check if prompt is dangerous
             if metadata.is_dangerous > 0.8:
@@ -98,6 +99,8 @@ class ChatController:
 
             # Prepare conversation context
             context = self.session_service.get_conversation_context(session_id, limit=6)
+            wikipedia_metadata = None
+            wiki_context = None
 
             # If classifier says Wikipedia is needed, search first and present results
             if getattr(metadata, 'needs_wikipedia', False):
@@ -108,6 +111,7 @@ class ChatController:
                 qr_cfg = wiki_cfg.get('query_refiner', {})
                 queries = [prompt]
                 if qr_cfg.get('enabled', False) and self.query_refiner_service:
+                    yield self._status_event('Dostosowuje zapytania...')
                     refined = await self.query_refiner_service.refine_queries(
                         prompt=prompt,
                         chat_history=chat_history,
@@ -118,6 +122,8 @@ class ChatController:
                     if refined:
                         queries = refined
 
+                yield self._status_event('Lacze z Wikipedia...')
+                yield self._status_event('Pobieram artykuly z Wiki...')
                 wiki_context, wikipedia_metadata = await self._search_wikipedia_multi_query(
                     queries=queries,
                     original_prompt=prompt,
@@ -125,6 +131,7 @@ class ChatController:
                 )
 
                 if wikipedia_metadata and getattr(wikipedia_metadata, 'sources', None):
+                    yield self._status_event('Porownuje wyniki...')
                     # Show sources first so buttons are visible
                     yield self._format_sse('wikipedia', wikipedia_metadata.model_dump())
 
@@ -144,6 +151,7 @@ class ChatController:
                 if perfect:
                     # Fetch full article and generate a source-centric answer
                     best = perfect[0]
+                    yield self._status_event('Pobieram pelne dane...')
                     full_article = await self.wikipedia_service.get_full_article_by_pageid(pageid=best.pageid, max_chars=50000)
                     if full_article:
                         # Try to attach an image via summary
@@ -167,6 +175,7 @@ class ChatController:
                             "Jeśli w kontekście jest linia 'Image: <URL>', możesz dodać <figure><img src=...><figcaption> z podpisem."
                         )
 
+                        yield self._status_event('Mysle...')
                         response_text = await self.llm_service.generate_chat_response(
                             prompt=prompt_text,
                             chat_history=final_context,
@@ -191,6 +200,7 @@ class ChatController:
                             f"{cite_lines}"
                         )
 
+                        yield self._status_event('Mysle...')
                         response_text = await self.llm_service.generate_chat_response(
                             prompt=prompt_text,
                             chat_history=final_context,
@@ -204,6 +214,7 @@ class ChatController:
                             "<p>Nie znaleziono wiarygodnych wyników w Wikipedii dla tego zapytania.</p> "
                             "<p>Zaproponuj alternatywne zapytania:</p><ul><li>…</li><li>…</li><li>…</li></ul>"
                         )
+                        yield self._status_event('Mysle...')
                         response_text = await self.llm_service.generate_chat_response(
                             prompt=nores_prompt,
                             chat_history=context,
@@ -212,6 +223,7 @@ class ChatController:
                         )
 
                 # Stream assistant answer
+                yield self._status_event('Kompiluje odpowiedz...')
                 chunk_size = 10
                 for i in range(0, len(response_text), chunk_size):
                     chunk = response_text[i:i + chunk_size]
@@ -244,6 +256,7 @@ class ChatController:
             # Otherwise: normal conversational flow (LLM may optionally request Wikipedia)
             final_context = list(context)
 
+            yield self._status_event('Mysle...')
             initial_response = await self.llm_service.generate_chat_response(
                 prompt=prompt,
                 chat_history=final_context,
@@ -255,6 +268,8 @@ class ChatController:
             wiki_queries = self._extract_wikipedia_queries(initial_response)
 
             if wiki_queries:
+                yield self._status_event('Lacze z Wikipedia...')
+                yield self._status_event('Pobieram artykuly z Wiki...')
                 wiki_context, wikipedia_metadata = await self._search_wikipedia_multi_query(
                     queries=wiki_queries,
                     original_prompt=prompt,
@@ -262,6 +277,7 @@ class ChatController:
                 )
 
                 if wiki_context and wikipedia_metadata and getattr(wikipedia_metadata, 'sources', None):
+                    yield self._status_event('Porownuje wyniki...')
                     final_context.append({'role': 'system', 'content': f'Wikipedia results:\n{wiki_context}'})
                     yield self._format_sse('wikipedia', wikipedia_metadata.model_dump())
 
@@ -274,6 +290,7 @@ class ChatController:
 
                     if perfect:
                         best = perfect[0]
+                        yield self._status_event('Pobieram pelne dane...')
                         full_article = await self.wikipedia_service.get_full_article_by_pageid(pageid=best.pageid, max_chars=50000)
                         if full_article:
                             # Attach image if possible
@@ -294,6 +311,7 @@ class ChatController:
                                 "Jeśli w kontekście jest linia 'Image: <URL>', możesz dodać <figure><img src=...><figcaption>."
                             )
 
+                            yield self._status_event('Mysle...')
                             response_text = await self.llm_service.generate_chat_response(
                                 prompt=prompt_text,
                                 chat_history=final_context,
@@ -315,6 +333,7 @@ class ChatController:
                                 "Sformatuj odpowiedź jako prosty HTML (użyj <p>, <ul>, <li>, <a>, <blockquote>).\n"
                                 f"{cite_lines}\n"
                             )
+                            yield self._status_event('Mysle...')
                             response_text = await self.llm_service.generate_chat_response(
                                 prompt=prompt_text,
                                 chat_history=final_context,
@@ -322,6 +341,7 @@ class ChatController:
                                 model_config=model_config
                             )
                         else:
+                            yield self._status_event('Mysle...')
                             response_text = await self.llm_service.generate_chat_response(
                                 prompt=("Based on the Wikipedia results above, provide a complete answer to the user's question."),
                                 chat_history=final_context,
@@ -334,6 +354,7 @@ class ChatController:
                 response_text = initial_response
 
             # Stream response in chunks
+            yield self._status_event('Kompiluje odpowiedz...')
             chunk_size = 10
             for i in range(0, len(response_text), chunk_size):
                 chunk = response_text[i:i + chunk_size]
@@ -410,6 +431,10 @@ class ChatController:
             'data': data
         }
         return f"data: {json.dumps(event_data)}\n\n"
+
+    def _status_event(self, message: str) -> str:
+        """Helper to format status updates."""
+        return self._format_sse('status', {'message': message})
 
     def _extract_wikipedia_queries(self, response: str) -> List[str]:
         """Wyciągnij zapytania [WIKIPEDIA_SEARCH: query] z odpowiedzi LLM."""
