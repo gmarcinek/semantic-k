@@ -463,5 +463,5 @@ class WikipediaSearchService:
         """
         if not pageid:
             return ""
-        language = getattr(self.wikipedia_service, "language", "en")
+        language = getattr(self.wikipedia_service, "language", "pl")
         return f"https://{language}.wikipedia.org/?curid={pageid}"

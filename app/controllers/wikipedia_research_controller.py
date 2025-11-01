@@ -21,17 +21,6 @@ class WikipediaResearchController:
         wikipedia_search_service,
         context_builder_service
     ):
-        """Initialize Wikipedia research controller.
-
-        Args:
-            session_service: Session management service
-            config_service: Configuration service
-            llm_service: LLM API service
-            wikipedia_service: Wikipedia API service
-            sse_formatter_service: SSE formatter service
-            wikipedia_search_service: Wikipedia search service
-            context_builder_service: Context builder service
-        """
         self.session_service = session_service
         self.config_service = config_service
         self.llm_service = llm_service
@@ -44,14 +33,6 @@ class WikipediaResearchController:
         self,
         request: WikipediaResearchRequest
     ) -> AsyncGenerator[str, None]:
-        """Stream a deep-dive summary (referat) based on a full Wikipedia article.
-
-        Args:
-            request: WikipediaResearchRequest with session_id, pageid, and title
-
-        Yields:
-            SSE formatted events
-        """
         session_id = request.session_id
         pageid = request.pageid
         title = request.title
@@ -133,14 +114,6 @@ class WikipediaResearchController:
             yield self.sse_formatter.format_sse('error', f'Błąd: {str(e)}')
 
     def _extract_topic_from_history(self, chat_history):
-        """Extract topic from chat history metadata.
-
-        Args:
-            chat_history: Chat history list
-
-        Returns:
-            Topic string
-        """
         topic = 'GENERAL_KNOWLEDGE'
         if chat_history:
             for msg in reversed(chat_history):
@@ -151,14 +124,6 @@ class WikipediaResearchController:
         return topic
 
     async def _attach_image_to_article(self, article):
-        """Attach thumbnail image to article if available.
-
-        Args:
-            article: Article dict
-
-        Returns:
-            Article dict with image_url if available
-        """
         try:
             summary_extra = await self.wikipedia_service.get_summary_by_title(
                 article.get('title', '')
@@ -170,14 +135,6 @@ class WikipediaResearchController:
         return article
 
     async def _fetch_article_images(self, article):
-        """Fetch gallery of images for article.
-
-        Args:
-            article: Article dict
-
-        Returns:
-            Article dict with images list
-        """
         try:
             media = await self.wikipedia_service._fetch_media_by_title(
                 article.get('title', '')
@@ -189,15 +146,6 @@ class WikipediaResearchController:
         return article
 
     def _send_wikipedia_metadata_event(self, article, title):
-        """Send Wikipedia metadata event for UI rendering.
-
-        Args:
-            article: Article dict
-            title: Article title
-
-        Returns:
-            SSE event string
-        """
         try:
             wm = WikipediaMetadata(
                 query=title or article.get('title', ''),
@@ -218,14 +166,6 @@ class WikipediaResearchController:
             return ""
 
     def _build_research_prompt(self, title: str) -> str:
-        """Build research prompt for generating referat.
-
-        Args:
-            title: Article title
-
-        Returns:
-            Prompt text
-        """
         return (
             "Na podstawie pełnego artykułu z Wikipedii w kontekście systemowym powyżej przygotuj zwięzły, dobrze ustrukturyzowany referat o tym HAŚLE. "
             "Nie odwołuj się do wcześniejszej rozmowy. Nie dodawaj nic spoza artykułu. "
@@ -235,12 +175,4 @@ class WikipediaResearchController:
         )
 
     def _enable_wikipedia_tool(self, system_prompt: str) -> str:
-        """Enable Wikipedia tool in system prompt.
-
-        Args:
-            system_prompt: Current system prompt
-
-        Returns:
-            Modified system prompt
-        """
         return system_prompt

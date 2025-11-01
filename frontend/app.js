@@ -313,8 +313,10 @@ function appendWikipediaImageGallery(targetBubble, wikipediaData) {
             const img = document.createElement('img');
             img.src = url;
             img.alt = title;
-            img.style.maxWidth = '300px';
+            img.style.maxWidth = '180px';
+            img.style.maxHeight = '180px';
             img.style.height = 'auto';
+            img.style.width = 'auto';
             img.style.borderRadius = '6px';
             img.style.border = '1px solid rgba(0,0,0,0.1)';
             img.style.cursor = 'pointer';
