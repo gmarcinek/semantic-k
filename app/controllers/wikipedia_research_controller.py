@@ -147,8 +147,11 @@ class WikipediaResearchController:
 
     def _send_wikipedia_metadata_event(self, article, title):
         try:
+            query_text = title or article.get('title', '')
+            lang_code = (article.get('language', getattr(self.wikipedia_service, "language", None)) or "").lower()
+            queries_map = {lang_code: [query_text]} if lang_code else {}
             wm = WikipediaMetadata(
-                query=title or article.get('title', ''),
+                query=query_text,
                 sources=[WikipediaSource(
                     title=article.get('title', ''),
                     url=article.get('url', ''),
@@ -156,10 +159,17 @@ class WikipediaResearchController:
                     extract=article.get('extract', ''),
                     relevance_score=1.0,
                     image_url=article.get('image_url'),
-                    images=article.get('images', [])
+                    images=article.get('images', []),
+                    language=article.get('language', getattr(self.wikipedia_service, "language", None))
                 )],
                 total_results=1,
-                reranked=False
+                reranked=False,
+                primary_language=article.get('language', getattr(self.wikipedia_service, "language", None)),
+                languages_used=[
+                    lang for lang in [article.get('language', getattr(self.wikipedia_service, "language", None))]
+                    if lang
+                ],
+                queries_by_language=queries_map
             )
             return self.sse_formatter.format_sse('wikipedia', wm.model_dump())
         except Exception:

@@ -338,6 +338,31 @@ function displayWikipediaSources(wikipediaData) {
         sourcesDiv.appendChild(note);
     }
 
+    if (Array.isArray(wikipediaData.languages_used) && wikipediaData.languages_used.length > 0) {
+        const langInfo = document.createElement('div');
+        langInfo.className = 'source-intent-note';
+        langInfo.textContent = `Languages used: ${wikipediaData.languages_used.map(l => l.toUpperCase()).join(', ')}`;
+        sourcesDiv.appendChild(langInfo);
+    }
+
+    if (wikipediaData.queries_by_language && typeof wikipediaData.queries_by_language === 'object') {
+        const queryEntries = Object.entries(wikipediaData.queries_by_language)
+            .map(([lang, list]) => {
+                if (!Array.isArray(list) || list.length === 0) {
+                    return null;
+                }
+                const preview = list.slice(0, 3).join(', ');
+                return `${lang.toUpperCase()}: ${preview}`;
+            })
+            .filter(Boolean);
+        if (queryEntries.length > 0) {
+            const queryInfo = document.createElement('div');
+            queryInfo.className = 'source-intent-note';
+            queryInfo.textContent = `Search queries: ${queryEntries.join(' | ')}`;
+            sourcesDiv.appendChild(queryInfo);
+        }
+    }
+
     const contextTopics = Array.isArray(wikipediaData.context_topics) ? wikipediaData.context_topics : [];
     const primaryPageId = typeof wikipediaData.primary_pageid === 'number' ? wikipediaData.primary_pageid : null;
 
@@ -357,6 +382,13 @@ function displayWikipediaSources(wikipediaData) {
         titleLink.className = 'source-title';
         titleLink.textContent = `${index + 1}. ${source.title}`;
         headerDiv.appendChild(titleLink);
+
+        if (source.language) {
+            const langBadge = document.createElement('span');
+            langBadge.className = 'badge badge-role-context';
+            langBadge.textContent = source.language.toUpperCase();
+            headerDiv.appendChild(langBadge);
+        }
 
         const sourcePageId = typeof source.pageid === 'number' ? source.pageid : (source.pageid ? Number(source.pageid) : null);
         const isPrimary = primaryPageId !== null && sourcePageId !== null && primaryPageId === sourcePageId;

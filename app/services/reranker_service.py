@@ -20,6 +20,7 @@ class RankedResult(BaseModel):
     snippet: str
     relevance_score: float
     reasoning: str
+    language: str = "pl"
 
 
 class RerankerService:
@@ -130,6 +131,7 @@ class RerankerService:
         for i, result in enumerate(search_results, 1):
             formatted.append(
                 f"Result {i}:\n"
+                f"  Language: {result.get('language', 'unknown')}\n"
                 f"  Page ID: {result.get('pageid', 'N/A')}\n"
                 f"  Title: {result.get('title', 'N/A')}\n"
                 f"  Snippet: {result.get('snippet', 'N/A')}\n"
@@ -184,7 +186,8 @@ Return a JSON object with the key "ranked_results" containing ALL results provid
                 title=result.get("title", ""),
                 snippet=result.get("snippet", ""),
                 relevance_score=score_data["relevance_score"],
-                reasoning=score_data["reasoning"]
+                reasoning=score_data["reasoning"],
+                language=str(result.get("language") or "pl").lower()
             ))
 
         return ranked

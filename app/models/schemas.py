@@ -75,6 +75,7 @@ class WikipediaSource(BaseModel):
     relevance_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Relevance score from reranker")
     image_url: Optional[str] = Field(None, description="Optional lead image/thumbnail URL")
     images: List[str] = Field(default_factory=list, description="Optional list of image URLs for gallery")
+    language: Optional[str] = Field(None, description="Language code of the Wikipedia article")
 
 
 class WikipediaIntentTopic(BaseModel):
@@ -102,6 +103,9 @@ class WikipediaMetadata(BaseModel):
     reranking_model: Optional[str] = Field(None, description="Model used for reranking")
     primary_topic: Optional[str] = Field(None, description="Primary topic resolved from user intent")
     primary_pageid: Optional[int] = Field(None, description="Page ID of the primary topic, if available")
+    primary_language: Optional[str] = Field(None, description="Language code of the primary article, if available")
+    languages_used: List[str] = Field(default_factory=list, description="Languages consulted during search")
+    queries_by_language: Dict[str, List[str]] = Field(default_factory=dict, description="Queries executed per language")
     context_topics: List[WikipediaIntentTopic] = Field(default_factory=list, description="Supporting topics metadata")
     intent_notes: Optional[str] = Field(None, description="Narrative explanation of intent resolution")
 

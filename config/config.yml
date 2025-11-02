@@ -84,6 +84,11 @@ status_messages:
 wikipedia:
   # Wikipedia language
   language: "pl"
+  fallback_languages:
+    - "en"
+    - "de"
+    - "es"
+    - "fr"
 
   # Search configuration
   search:
@@ -95,13 +100,13 @@ wikipedia:
   query_refiner:
     enabled: true
     model: "gpt-4.1-mini"
-    max_queries: 3
+    max_queries: 5
 
   # Reranking configuration
   reranking:
     enabled: true
     model: "gpt-4.1-mini"  # Model to use for reranking
-    top_n: 3  # Number of top results to return after reranking
+    top_n: 5  # Number of top results to return after reranking
 
   # Relevance thresholds (tunable)
   thresholds:

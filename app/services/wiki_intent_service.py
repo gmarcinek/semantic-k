@@ -32,6 +32,7 @@ class WikipediaIntentService:
             lines.append(
                 f"{idx}. Title: {cand.get('title', 'N/A')}\n"
                 f"   PageID: {cand.get('pageid')}\n"
+                f"   Language: {cand.get('language', 'N/A')}\n"
                 f"   Snippet: {cand.get('snippet', '').strip()}\n"
             )
         return "\n".join(lines)

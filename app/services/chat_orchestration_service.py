@@ -158,14 +158,18 @@ class ChatOrchestrationService:
         system_prompt = self._enable_wikipedia_tool(system_prompt)
 
         # Refine queries if enabled
-        queries = await self._refine_queries_if_enabled(prompt, chat_history)
+        queries_by_language = await self._refine_queries_if_enabled(
+            prompt,
+            chat_history,
+            base_queries=None
+        )
 
         # Search Wikipedia
         yield self.sse_formatter.status_event('connecting_wikipedia')
         yield self.sse_formatter.status_event('searching_articles')
 
         wiki_context, wikipedia_metadata = await self.wikipedia_search_service.search_wikipedia_multi_query(
-            queries=queries,
+            queries=queries_by_language,
             original_prompt=prompt,
             chat_history=chat_history
         )
@@ -255,8 +259,14 @@ class ChatOrchestrationService:
             yield self.sse_formatter.status_event('connecting_wikipedia')
             yield self.sse_formatter.status_event('gathering_data')
 
+            queries_by_language = await self._refine_queries_if_enabled(
+                prompt,
+                chat_history,
+                base_queries=wiki_queries
+            )
+
             wiki_context, wikipedia_metadata = await self.wikipedia_search_service.search_wikipedia_multi_query(
-                queries=wiki_queries,
+                queries=queries_by_language,
                 original_prompt=prompt,
                 chat_history=chat_history
             )
@@ -304,33 +314,61 @@ class ChatOrchestrationService:
     async def _refine_queries_if_enabled(
         self,
         prompt: str,
-        chat_history: List[Dict]
-    ) -> List[str]:
+        chat_history: List[Dict],
+        base_queries: Optional[List[str]] = None
+    ) -> Dict[str, List[str]]:
         """Refine queries using query refiner service if enabled.
 
         Args:
             prompt: User prompt
             chat_history: Chat history
+            base_queries: Optional queries already supplied by the model
 
         Returns:
-            List of queries (refined or original)
+            Mapping of language -> queries (refined or original)
         """
         wiki_cfg = self.config_service.config.get('wikipedia', {})
         qr_cfg = wiki_cfg.get('query_refiner', {})
-        queries = [prompt]
+
+        primary_language = str(wiki_cfg.get('language', 'pl') or 'pl').strip().lower() or 'pl'
+        fallback_cfg = wiki_cfg.get('fallback_languages', [])
+        if isinstance(fallback_cfg, str):
+            fallback_list = [fallback_cfg]
+        else:
+            fallback_list = list(fallback_cfg or [])
+        languages: List[str] = []
+        seen_langs: set = set()
+        for lang in [primary_language, *fallback_list]:
+            code = str(lang or '').strip().lower()
+            if not code or code in seen_langs:
+                continue
+            seen_langs.add(code)
+            languages.append(code)
+        if not languages:
+            languages = [primary_language]
+
+        default_queries = base_queries if base_queries else [prompt]
+        default_cleaned = [str(q).strip() for q in default_queries if str(q).strip()]
+        if not default_cleaned:
+            default_cleaned = [prompt]
+
+        queries_by_language: Dict[str, List[str]] = {
+            lang: list(default_cleaned) for lang in languages
+        }
 
         if qr_cfg.get('enabled', False) and self.query_refiner_service:
-            refined = await self.query_refiner_service.refine_queries(
+            refined = await self.query_refiner_service.refine_queries_multi_language(
                 prompt=prompt,
                 chat_history=chat_history,
-                language=wiki_cfg.get('language', 'pl'),
+                languages=languages,
                 max_queries=int(qr_cfg.get('max_queries', 3)),
-                model_name=qr_cfg.get('model', 'gpt-4.1-mini')
+                model_name=qr_cfg.get('model', 'gpt-4.1-mini'),
+                base_queries=default_cleaned
             )
             if refined:
-                queries = refined
+                queries_by_language = refined
 
-        return queries
+        return queries_by_language
 
     async def _generate_response_by_strategy(
         self,
