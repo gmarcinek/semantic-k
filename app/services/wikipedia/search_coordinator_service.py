@@ -1,4 +1,5 @@
 """Wikipedia search coordinator service for orchestrating the search process."""
+import asyncio
 import logging
 import re
 from typing import Dict, List, Optional, Tuple, Union
@@ -21,14 +22,6 @@ class WikipediaSearchCoordinatorService:
         config_service,
         wikipedia_intent_service=None
     ):
-        """Initialize Wikipedia search coordinator.
-
-        Args:
-            wikipedia_service: Base Wikipedia service
-            reranker_service: Service for reranking results
-            config_service: Configuration service
-            wikipedia_intent_service: Optional intent analysis service
-        """
         self.wikipedia_service = wikipedia_service
         self.reranker_service = reranker_service
         self.config_service = config_service
@@ -63,27 +56,11 @@ class WikipediaSearchCoordinatorService:
         self.article_fetcher = ArticleFetcherService(primary_language=self.primary_language)
 
     def extract_wikipedia_queries(self, response: str) -> List[str]:
-        """Extract Wikipedia search queries from LLM response.
-
-        Args:
-            response: LLM response text
-
-        Returns:
-            List of extracted queries
-        """
         pattern = r'\[WIKIPEDIA_SEARCH:\s*([^\]]+)\]'
         matches = re.findall(pattern, response or "")
         return [m.strip() for m in matches if m and m.strip()]
 
     def _get_service_for_language(self, language: Optional[str]) -> WikipediaService:
-        """Get or create Wikipedia service for a specific language.
-
-        Args:
-            language: Language code
-
-        Returns:
-            WikipediaService instance
-        """
         return self.query_normalizer._get_service_for_language(language)
 
     async def search_wikipedia_multi_query(
@@ -92,16 +69,6 @@ class WikipediaSearchCoordinatorService:
         original_prompt: str,
         chat_history: Optional[List[Dict]] = None,
     ) -> Tuple[Optional[str], Optional[WikipediaMetadata]]:
-        """Search Wikipedia across multiple queries and languages.
-
-        Args:
-            queries: Either list of queries or dict mapping language -> queries
-            original_prompt: Original user prompt
-            chat_history: Optional chat history
-
-        Returns:
-            Tuple of (context string, metadata)
-        """
         wiki_cfg = self.config_service.config.get('wikipedia', {})
         rerank_cfg = wiki_cfg.get('reranking', {})
         search_cfg = wiki_cfg.get('search', {})
@@ -120,53 +87,101 @@ class WikipediaSearchCoordinatorService:
             original_prompt
         )
 
-        # Build fallback sequence
-        fallback_sequence: List[str] = []
-        for lang in self.fallback_languages:
-            if lang != self.primary_language and lang not in fallback_sequence:
-                fallback_sequence.append(lang)
-        for lang in queries_map.keys():
-            if lang != self.primary_language and lang not in fallback_sequence:
-                fallback_sequence.append(lang)
+        # Determine search order (primary first, then configured fallbacks, then dynamic languages)
+        languages_to_search: List[str] = []
+        seen_languages: set = set()
+        for lang in [self.primary_language, *self.fallback_languages, *queries_map.keys()]:
+            normalized = (lang or "").strip().lower()
+            if not normalized or normalized in seen_languages:
+                continue
+            seen_languages.add(normalized)
+            languages_to_search.append(normalized)
 
-        # Collect results
+        # Launch per-language searches concurrently
+        search_tasks: Dict[str, asyncio.Task] = {}
+        for lang in languages_to_search:
+            lang_queries = queries_map.get(lang)
+            if lang == self.primary_language:
+                lang_queries = lang_queries or [original_prompt]
+            if not lang_queries:
+                continue
+            search_tasks[lang] = asyncio.create_task(
+                self._collect_results_for_language(
+                    language=lang,
+                    queries=lang_queries,
+                    per_query_limit=per_query_limit,
+                    per_language_cap=max_total
+                )
+            )
+
+        language_results: Dict[str, List[Dict]] = {}
+        if search_tasks:
+            task_results = await asyncio.gather(*search_tasks.values(), return_exceptions=True)
+            for lang, result in zip(search_tasks.keys(), task_results):
+                if isinstance(result, Exception):
+                    logger.error(
+                        "Wikipedia language '%s' search failed: %s",
+                        lang,
+                        result
+                    )
+                    continue
+                language_results[lang] = result
+
+        primary_results = language_results.get(self.primary_language, [])
+
         combined_results: List[Dict] = []
         seen_pageids: set = set()
         seen_titles: set = set()
+        fallback_contributions: Dict[str, int] = {}
 
-        primary_results = await self._collect_results_for_language(
-            self.primary_language,
-            queries_map.get(self.primary_language, [original_prompt]),
-            per_query_limit,
-            max_total,
-            combined_results,
-            seen_pageids,
-            seen_titles
-        )
-
-        # Add fallback results if needed
-        if self.query_normalizer._needs_additional_results(primary_results, max_total):
-            for fallback_lang in fallback_sequence:
+        def append_results(results: List[Dict], lang: str, collector: Optional[List[Dict]] = None) -> int:
+            added = 0
+            for result in results:
                 if len(combined_results) >= max_total:
                     break
-                fallback_queries = queries_map.get(fallback_lang, [])
-                if not fallback_queries:
+                pid = result.get('pageid')
+                title_key = (result.get('title') or '').strip().lower()
+
+                composite_pid = f"{lang}:{pid}" if pid is not None else None
+                composite_title = f"{lang}:{title_key}" if title_key else None
+
+                if composite_pid and composite_pid in seen_pageids:
                     continue
-                fallback_results = await self._collect_results_for_language(
-                    fallback_lang,
-                    fallback_queries,
-                    per_query_limit,
-                    max_total,
-                    combined_results,
-                    seen_pageids,
-                    seen_titles
-                )
-                if fallback_results:
-                    logger.info(
-                        "Wikipedia fallback language '%s' contributed %d results",
-                        fallback_lang,
-                        len(fallback_results)
-                    )
+                if composite_title and composite_title in seen_titles:
+                    continue
+
+                combined_results.append(result)
+                added += 1
+
+                if collector is not None:
+                    collector.append(result)
+
+                if composite_pid:
+                    seen_pageids.add(composite_pid)
+                if composite_title:
+                    seen_titles.add(composite_title)
+            return added
+
+        primary_appended: List[Dict] = []
+        append_results(primary_results, self.primary_language, collector=primary_appended)
+
+        if self.query_normalizer._needs_additional_results(primary_appended, max_total):
+            for lang in languages_to_search:
+                if lang == self.primary_language or len(combined_results) >= max_total:
+                    continue
+                lang_results = language_results.get(lang)
+                if not lang_results:
+                    continue
+                added = append_results(lang_results, lang)
+                if added:
+                    fallback_contributions[lang] = added
+
+        for lang, contributed in fallback_contributions.items():
+            logger.info(
+                "Wikipedia fallback language '%s' contributed %d results",
+                lang,
+                contributed
+            )
 
         if not combined_results:
             return None, None
@@ -281,58 +296,41 @@ class WikipediaSearchCoordinatorService:
         language: str,
         queries: List[str],
         per_query_limit: int,
-        max_total: int,
-        combined_results: List[Dict],
-        seen_pageids: set,
-        seen_titles: set
+        per_language_cap: int
     ) -> List[Dict]:
-        """Collect search results for a specific language.
-
-        Args:
-            language: Language code
-            queries: List of queries to search
-            per_query_limit: Limit per query
-            max_total: Maximum total results
-            combined_results: Combined results list to append to
-            seen_pageids: Set of seen page IDs
-            seen_titles: Set of seen titles
-
-        Returns:
-            List of results for this language
-        """
         service = self._get_service_for_language(language)
         language_results: List[Dict] = []
+        seen_pageids: set = set()
+        seen_titles: set = set()
 
         for query in queries[:3]:
+            if len(language_results) >= per_language_cap:
+                break
             search_results = await service.search(query=query, limit=per_query_limit)
             if not search_results:
                 continue
 
             for result in search_results:
+                if len(language_results) >= per_language_cap:
+                    break
+
                 pid = result.get('pageid')
                 title_key = (result.get('title') or '').strip().lower()
 
-                composite_pid = f"{language}:{pid}" if pid is not None else None
-                composite_title = f"{language}:{title_key}" if title_key else None
-
-                if composite_pid and composite_pid in seen_pageids:
+                if pid is not None and pid in seen_pageids:
                     continue
-                if composite_title and composite_title in seen_titles:
+                if title_key and title_key in seen_titles:
                     continue
 
                 result_with_lang = dict(result)
                 result_with_lang['language'] = language
 
-                combined_results.append(result_with_lang)
                 language_results.append(result_with_lang)
 
-                if composite_pid:
-                    seen_pageids.add(composite_pid)
-                if composite_title:
-                    seen_titles.add(composite_title)
-
-                if len(combined_results) >= max_total:
-                    return language_results
+                if pid is not None:
+                    seen_pageids.add(pid)
+                if title_key:
+                    seen_titles.add(title_key)
 
         return language_results
 
@@ -342,16 +340,6 @@ class WikipediaSearchCoordinatorService:
         candidates: List[RankedResult],
         chat_history: Optional[List[Dict]] = None
     ) -> WikipediaIntentResult:
-        """Analyze user intent from prompt and candidates.
-
-        Args:
-            prompt: User prompt
-            candidates: Ranked candidates
-            chat_history: Optional chat history
-
-        Returns:
-            Intent analysis result
-        """
         if self.wikipedia_intent_service:
             return await self.wikipedia_intent_service.analyze(
                 prompt=prompt,
@@ -385,15 +373,6 @@ class WikipediaSearchCoordinatorService:
         topic: Optional[WikipediaIntentTopic],
         candidates: List[RankedResult]
     ) -> Optional[RankedResult]:
-        """Match a topic to a candidate from results.
-
-        Args:
-            topic: Topic to match
-            candidates: List of candidates
-
-        Returns:
-            Matching candidate or None
-        """
         if not topic:
             return None
         if topic.pageid is not None:
@@ -414,17 +393,6 @@ class WikipediaSearchCoordinatorService:
         primary_candidate: RankedResult,
         max_total: int
     ) -> List[Tuple[WikipediaIntentTopic, RankedResult]]:
-        """Resolve context topics from intent analysis.
-
-        Args:
-            intent_result: Intent analysis result
-            ranked_results: Ranked search results
-            primary_candidate: Primary candidate
-            max_total: Maximum total articles
-
-        Returns:
-            List of (topic, candidate) pairs
-        """
         resolved_context_pairs: List[Tuple[WikipediaIntentTopic, RankedResult]] = []
         context_capacity = max_total - 1
         primary_key = (
@@ -474,26 +442,9 @@ class WikipediaSearchCoordinatorService:
         return resolved_context_pairs
 
     def build_wikipedia_context(self, articles: List[Dict]) -> str:
-        """Build Wikipedia context string from articles.
-
-        Args:
-            articles: List of articles
-
-        Returns:
-            Formatted context string
-        """
         return self.article_fetcher.build_wikipedia_context(articles)
 
     def build_wiki_url(self, pageid: Optional[int], language: Optional[str] = None) -> str:
-        """Build Wikipedia URL.
-
-        Args:
-            pageid: Page ID
-            language: Language code
-
-        Returns:
-            Wikipedia URL
-        """
         return self.article_fetcher.build_wiki_url(
             pageid,
             language,

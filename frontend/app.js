@@ -46,8 +46,8 @@ userPromptInput.addEventListener('keydown', (e) => {
 
 // Handle research article events from articles manager
 window.addEventListener('research-article', (e) => {
-    const { pageid, title } = e.detail;
-    chatHandler.researchArticle(pageid, title);
+    const { pageid, title, language } = e.detail;
+    chatHandler.researchArticle(pageid, title, language);
 });
 
 // Focus on input on load

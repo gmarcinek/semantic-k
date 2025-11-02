@@ -14,6 +14,7 @@ class WikipediaResearchRequest(BaseModel):
     session_id: str = Field(..., description="Session identifier")
     pageid: int = Field(..., description="Wikipedia page ID to research")
     title: Optional[str] = Field(None, description="Optional article title for logging/UI")
+    language: Optional[str] = Field(None, description="Language code of the Wikipedia article")
 
 
 class ChatMessage(BaseModel):

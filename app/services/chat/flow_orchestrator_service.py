@@ -177,7 +177,7 @@ class ChatFlowOrchestratorService:
 
         # Determine response strategy
         from app.services.response_strategy_service import ResponseStrategyService
-        response_strategy_service = ResponseStrategyService()
+        response_strategy_service = ResponseStrategyService(self.config_service)
         strategy, top_answer, perfect = response_strategy_service.determine_strategy(wikipedia_metadata)
 
         # Build context
@@ -277,7 +277,7 @@ class ChatFlowOrchestratorService:
 
                 # Determine strategy and generate response
                 from app.services.response_strategy_service import ResponseStrategyService
-                response_strategy_service = ResponseStrategyService()
+                response_strategy_service = ResponseStrategyService(self.config_service)
                 strategy, top_answer, perfect = response_strategy_service.determine_strategy(wikipedia_metadata)
 
                 response_text = await self.response_generator_service.generate_response_by_strategy(

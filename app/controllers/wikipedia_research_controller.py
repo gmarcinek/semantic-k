@@ -1,7 +1,7 @@
 """Wikipedia research controller for handling deep-dive research operations."""
 import asyncio
 import logging
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 from app.models import WikipediaResearchRequest, WikipediaMetadata, WikipediaSource
 
@@ -36,6 +36,7 @@ class WikipediaResearchController:
         session_id = request.session_id
         pageid = request.pageid
         title = request.title
+        requested_language = self._normalize_language_code(request.language)
 
         try:
             chat_history = self.session_service.get_session(session_id)
@@ -58,8 +59,12 @@ class WikipediaResearchController:
                 model_name = self.config_service.get_default_model()
             model_config = self.config_service.get_model_config(model_name)
 
+            language = requested_language or self._infer_language_from_session(session_id, pageid)
+            article_service = self._get_wikipedia_service_for_language(language)
+            article_language = getattr(article_service, "language", None) or language or getattr(self.wikipedia_service, "language", None)
+
             # Fetch full article
-            article = await self.wikipedia_service.get_full_article_by_pageid(
+            article = await article_service.get_full_article_by_pageid(
                 pageid=pageid,
                 max_chars=50000
             )
@@ -68,15 +73,18 @@ class WikipediaResearchController:
                 yield self.sse_formatter.format_sse('done', {})
                 return
 
+            article['language'] = article_language
+            article.setdefault('url', self.wikipedia_search_service.build_wiki_url(pageid, article_language))
+
             # Attach image if available
-            article = await self._attach_image_to_article(article)
+            article = await self._attach_image_to_article(article, article_service)
 
             # Prepare Wikipedia context
             wiki_context = self.wikipedia_search_service.build_wikipedia_context([article])
             final_context = self.context_builder_service.build_detached_context_with_article(wiki_context)
 
             # Fetch gallery of images
-            article = await self._fetch_article_images(article)
+            article = await self._fetch_article_images(article, article_service)
 
             # Send wikipedia event for UI
             yield self._send_wikipedia_metadata_event(article, title)
@@ -123,9 +131,9 @@ class WikipediaResearchController:
                     break
         return topic
 
-    async def _attach_image_to_article(self, article):
+    async def _attach_image_to_article(self, article, service):
         try:
-            summary_extra = await self.wikipedia_service.get_summary_by_title(
+            summary_extra = await service.get_summary_by_title(
                 article.get('title', '')
             )
             if summary_extra and summary_extra.get('thumbnail_url'):
@@ -134,9 +142,9 @@ class WikipediaResearchController:
             pass
         return article
 
-    async def _fetch_article_images(self, article):
+    async def _fetch_article_images(self, article, service):
         try:
-            media = await self.wikipedia_service._fetch_media_by_title(
+            media = await service._fetch_media_by_title(
                 article.get('title', '')
             )
             if media:
@@ -186,3 +194,34 @@ class WikipediaResearchController:
 
     def _enable_wikipedia_tool(self, system_prompt: str) -> str:
         return system_prompt
+
+    def _normalize_language_code(self, language: Optional[str]) -> Optional[str]:
+        if language is None:
+            return None
+        code = str(language).strip().lower()
+        return code or None
+
+    def _infer_language_from_session(self, session_id: str, pageid: int) -> Optional[str]:
+        try:
+            articles = self.session_service.get_wikipedia_articles(session_id)
+        except Exception:
+            return None
+
+        for article in articles or []:
+            stored_pageid = article.get('pageid')
+            try:
+                if stored_pageid is not None and int(stored_pageid) == int(pageid):
+                    return self._normalize_language_code(article.get('language'))
+            except Exception:
+                continue
+        return None
+
+    def _get_wikipedia_service_for_language(self, language: Optional[str]):
+        normalized = self._normalize_language_code(language)
+        if normalized:
+            try:
+                if hasattr(self.wikipedia_search_service, "get_service_for_language"):
+                    return self.wikipedia_search_service.get_service_for_language(normalized)
+            except Exception as err:
+                logger.debug("Falling back to default Wikipedia service for language %s: %s", normalized, err)
+        return self.wikipedia_service

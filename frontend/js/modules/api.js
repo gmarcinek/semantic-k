@@ -50,14 +50,15 @@ export class ApiClient {
      * @param {string} sessionId - Session ID
      * @returns {Promise<Response>} Fetch response
      */
-    async researchArticle(pageid, title, sessionId) {
+    async researchArticle(pageid, title, language, sessionId) {
         return await fetch('/api/wiki/research', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 session_id: sessionId,
                 pageid: pageid,
-                title: title
+                title: title,
+                language: language
             })
         });
     }

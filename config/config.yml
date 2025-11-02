@@ -92,26 +92,26 @@ wikipedia:
 
   # Search configuration
   search:
-    max_results: 5  # Maximum number of aggregated Wikipedia entries
-    per_query_limit: 5  # Upper bound of results considered per generated query
-    extract_length: 50000  # Number of characters to extract from primary article
+    max_results: 10  # Maximum number of aggregated Wikipedia entries
+    per_query_limit: 10  # Upper bound of results considered per generated query
+    extract_length: 500000  # Number of characters to extract from primary article
 
   # LLM query refiner configuration
   query_refiner:
     enabled: true
     model: "gpt-4.1-mini"
-    max_queries: 5
+    max_queries: 10
 
   # Reranking configuration
   reranking:
     enabled: true
     model: "gpt-4.1-mini"  # Model to use for reranking
-    top_n: 5  # Number of top results to return after reranking
+    top_n: 10  # Number of top results to return after reranking
 
   # Relevance thresholds (tunable)
   thresholds:
     context: 0.6   # include in fetched context (was 0.7)
-    answer: 0.8    # include explicitly in answer (was 0.9)
+    answer: 0.7    # include explicitly in answer (was 0.9)
     perfect: 0.98  # treat as near-perfect match (was ~1.0)
 
   # Intent resolution (primary vs context topics)

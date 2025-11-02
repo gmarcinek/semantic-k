@@ -193,7 +193,11 @@ export class ArticlesManager {
         exploreBtn.addEventListener('click', () => {
             // This will be handled by ChatHandler
             window.dispatchEvent(new CustomEvent('research-article', {
-                detail: { pageid: source.pageid, title: source.title }
+                detail: {
+                    pageid: source.pageid,
+                    title: source.title,
+                    language: source.language
+                }
             }));
         });
 

@@ -91,8 +91,9 @@ export class ChatHandler {
      * Research a Wikipedia article
      * @param {number} pageid - Wikipedia page ID
      * @param {string} title - Article title
+     * @param {string} [language] - Article language code
      */
-    async researchArticle(pageid, title) {
+    async researchArticle(pageid, title, language) {
         if (this.stateManager.isProcessing) return;
 
         try {
@@ -100,7 +101,12 @@ export class ChatHandler {
             this._setInputsDisabled(true);
             this.uiManager.addTypingIndicator();
 
-            const response = await this.apiClient.researchArticle(pageid, title, this.stateManager.sessionId);
+            const response = await this.apiClient.researchArticle(
+                pageid,
+                title,
+                language,
+                this.stateManager.sessionId
+            );
 
             if (!response.ok) throw new Error('Network response was not ok');
 

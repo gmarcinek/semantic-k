@@ -26,19 +26,6 @@ class ChatOrchestrationService:
         sse_formatter_service,
         query_refiner_service=None,
     ):
-        """Initialize chat orchestration service.
-
-        Args:
-            session_service: Session management service
-            classification_service: Prompt classification service
-            llm_service: LLM API service
-            config_service: Configuration service
-            wikipedia_search_service: Wikipedia search service
-            response_strategy_service: Response strategy service
-            context_builder_service: Context builder service
-            sse_formatter_service: SSE formatter service
-            query_refiner_service: Optional query refiner service
-        """
         # Initialize response generator
         self.response_generator = ResponseGeneratorService(
             llm_service=llm_service,
@@ -77,15 +64,5 @@ class ChatOrchestrationService:
         session_id: str,
         chat_history: List[Dict]
     ) -> AsyncGenerator[str, None]:
-        """Process a chat request and yield SSE events.
-
-        Args:
-            prompt: User prompt
-            session_id: Session ID
-            chat_history: Chat history
-
-        Yields:
-            SSE formatted events
-        """
         async for event in self.flow_orchestrator.process_chat(prompt, session_id, chat_history):
             yield event
