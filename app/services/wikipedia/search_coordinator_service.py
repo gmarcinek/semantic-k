@@ -8,6 +8,7 @@ from app.services.wikipedia_service import WikipediaService
 from app.services.reranker_service import RankedResult
 from app.services.wikipedia.query_normalizer_service import QueryNormalizerService
 from app.services.wikipedia.article_fetcher_service import ArticleFetcherService
+from app.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +21,14 @@ class WikipediaSearchCoordinatorService:
         wikipedia_service,
         reranker_service,
         config_service,
-        wikipedia_intent_service=None
+        wikipedia_intent_service=None,
+        translation_service: Optional[TranslationService] = None
     ):
         self.wikipedia_service = wikipedia_service
         self.reranker_service = reranker_service
         self.config_service = config_service
         self.wikipedia_intent_service = wikipedia_intent_service
+        self.translation_service = translation_service
 
         wiki_cfg = self.config_service.config.get('wikipedia', {})
 
@@ -162,23 +165,21 @@ class WikipediaSearchCoordinatorService:
                     seen_titles.add(composite_title)
             return added
 
-        primary_appended: List[Dict] = []
-        append_results(primary_results, self.primary_language, collector=primary_appended)
+        append_results(primary_results, self.primary_language)
 
-        if self.query_normalizer._needs_additional_results(primary_appended, max_total):
-            for lang in languages_to_search:
-                if lang == self.primary_language or len(combined_results) >= max_total:
-                    continue
-                lang_results = language_results.get(lang)
-                if not lang_results:
-                    continue
-                added = append_results(lang_results, lang)
-                if added:
-                    fallback_contributions[lang] = added
+        for lang in languages_to_search:
+            if lang == self.primary_language or len(combined_results) >= max_total:
+                continue
+            lang_results = language_results.get(lang)
+            if not lang_results:
+                continue
+            added = append_results(lang_results, lang)
+            if added:
+                fallback_contributions[lang] = added
 
         for lang, contributed in fallback_contributions.items():
             logger.info(
-                "Wikipedia fallback language '%s' contributed %d results",
+                "Wikipedia language '%s' contributed %d results",
                 lang,
                 contributed
             )
@@ -253,6 +254,15 @@ class WikipediaSearchCoordinatorService:
                 getattr(self.wikipedia_service, "language", None)
             )
         )
+
+        if self.translation_service:
+            articles, sources = await self.translation_service.translate_articles_and_sources(
+                articles,
+                sources,
+                default_language=self.primary_language
+            )
+        else:
+            articles, sources = self._apply_language_prefix(articles, sources)
 
         # Build context and metadata
         wiki_context = self.article_fetcher.build_wikipedia_context(articles)
@@ -450,3 +460,40 @@ class WikipediaSearchCoordinatorService:
             language,
             getattr(self.wikipedia_service, "language", None)
         )
+
+    def _apply_language_prefix(
+        self,
+        articles: List[Dict],
+        sources: List[WikipediaSource]
+    ) -> Tuple[List[Dict], List[WikipediaSource]]:
+        formatted_articles: List[Dict] = []
+        for article in articles:
+            lang = (article.get("language") or self.primary_language).lower()
+            formatted_articles.append({
+                **article,
+                "title": self._format_with_language_code(article.get("title", ""), lang),
+                "language": lang
+            })
+
+        formatted_sources: List[WikipediaSource] = []
+        for source in sources:
+            lang = (source.language or self.primary_language).lower()
+            formatted_sources.append(
+                source.model_copy(
+                    update={
+                        "title": self._format_with_language_code(source.title, lang),
+                        "language": lang
+                    }
+                )
+            )
+        return formatted_articles, formatted_sources
+
+    def _format_with_language_code(self, text: str, language: Optional[str]) -> str:
+        code = (language or self.primary_language or "unknown").upper()
+        prefix = f"({code})"
+        content = (text or "").strip()
+        if content.upper().startswith(prefix):
+            return content
+        if content:
+            return f"{prefix} {content}"
+        return prefix

@@ -73,3 +73,9 @@ class WikipediaService:
     @staticmethod
     def _clean_html(text: str) -> str:
         return WikipediaApiClientService._clean_html(text)
+
+    async def get_language_links(self, pageid: int) -> Dict[str, str]:
+        return await self.content_service.get_language_links(pageid)
+
+    async def get_related_pages(self, title: str) -> List[Dict[str, str]]:
+        return await self.content_service.get_related_pages(title)

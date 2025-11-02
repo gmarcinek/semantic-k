@@ -36,7 +36,7 @@ class QueryRefinerService:
         if chat_history:
             recent = chat_history[-3:]
             hist = "\n".join(
-                f"{m.get('role')}: {str(m.get('content', ''))[:120]}" for m in recent
+                f"{m.get('role')}: {str(m.get('content', ''))[:240]}" for m in recent
             )
             content.append("\nRecent conversation context:\n" + hist)
         content.append(
@@ -64,12 +64,12 @@ class QueryRefinerService:
         if chat_history:
             recent = chat_history[-3:]
             hist = "\n".join(
-                f"{m.get('role')}: {str(m.get('content', ''))[:120]}" for m in recent
+                f"{m.get('role')}: {str(m.get('content', ''))[:240]}" for m in recent
             )
             content.append("\nRecent conversation context:\n" + hist)
         content.append(f"\nTarget languages (use these codes exactly): {', '.join(languages)}")
         if base_queries:
-            base = "\n".join(f"- {str(q)[:120]}" for q in base_queries[:6])
+            base = "\n".join(f"- {str(q)[:240]}" for q in base_queries[:6])
             content.append(
                 "\nExisting queries requested by the assistant (use them as hints, adapt per language as needed):\n"
                 f"{base}"

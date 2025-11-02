@@ -211,7 +211,18 @@ class WikipediaContentService:
         if not thumb and isinstance(data.get("thumbnail"), dict):
             thumb = data["thumbnail"].get("source")
 
-        return {"extract": extract, "url": page_url, "thumbnail_url": thumb}
+        pageid = data.get("pageid")
+        title = data.get("title")
+        lang = data.get("lang")
+
+        return {
+            "title": title,
+            "extract": extract,
+            "url": page_url,
+            "thumbnail_url": thumb,
+            "pageid": pageid,
+            "language": lang
+        }
 
     async def _fetch_media_by_title(self, title: str) -> Optional[List[str]]:
         """Fetch media images for an article.
@@ -246,3 +257,73 @@ class WikipediaContentService:
                 if src:
                     images.append(src)
         return images
+
+    async def get_language_links(self, pageid: int) -> Dict[str, str]:
+        """Get language links (alternate language titles) for a page.
+
+        Args:
+            pageid: Wikipedia page ID
+
+        Returns:
+            Mapping of language code -> localized title
+        """
+        params = {
+            "action": "query",
+            "prop": "langlinks",
+            "pageids": pageid,
+            "lllimit": "max",
+            "format": "json",
+            "utf8": 1
+        }
+        data = await self.api_client._make_request(params)
+        if not data:
+            return {}
+
+        result: Dict[str, str] = {}
+        pages = data.get("query", {}).get("pages", {})
+        if not pages:
+            return result
+
+        page = next(iter(pages.values()), {})
+        for link in page.get("langlinks", []):
+            lang = str(link.get("lang") or "").strip().lower()
+            title = link.get("*") or link.get("title") or ""
+            if lang and title:
+                result[lang] = title
+
+        return result
+
+    async def get_related_pages(self, title: str) -> List[Dict[str, str]]:
+        """Get related Wikipedia pages for a given title.
+
+        Args:
+            title: Article title
+
+        Returns:
+            List of related page summaries
+        """
+        title_enc = urllib.parse.quote(title)
+        endpoint = f"page/related/{title_enc}"
+        data = await self.api_client.make_rest_request(endpoint)
+
+        if not data:
+            return []
+
+        related_pages = []
+        for page in data.get("pages", []):
+            related_pages.append({
+                "title": page.get("title", ""),
+                "extract": page.get("extract") or page.get("description") or "",
+                "pageid": page.get("pageid"),
+                "url": (
+                    page.get("content_urls", {})
+                    .get("desktop", {})
+                    .get("page", "")
+                ),
+                "thumbnail": (
+                    (page.get("thumbnail") or {}).get("source")
+                    if isinstance(page.get("thumbnail"), dict)
+                    else None
+                )
+            })
+        return related_pages

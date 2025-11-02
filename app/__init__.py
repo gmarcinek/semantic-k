@@ -25,6 +25,7 @@ from app.services import (
     ResponseStrategyService,
     ContextBuilderService,
     ChatOrchestrationService,
+    TranslationService,
 )
 from app.services.wikipedia_service import WikipediaService
 from app.services.reranker_service import RerankerService
@@ -70,12 +71,14 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
     sse_formatter_service = SSEFormatterService(config_service)
     response_strategy_service = ResponseStrategyService(config_service)
     context_builder_service = ContextBuilderService(session_service)
+    translation_service = TranslationService(llm_service, config_service)
 
     wikipedia_search_service = WikipediaSearchService(
         wikipedia_service=wikipedia_service,
         reranker_service=reranker_service,
         config_service=config_service,
-        wikipedia_intent_service=wikipedia_intent_service
+        wikipedia_intent_service=wikipedia_intent_service,
+        translation_service=translation_service
     )
 
     chat_orchestration_service = ChatOrchestrationService(
@@ -102,7 +105,8 @@ def create_app(config_path: Optional[str] = None) -> FastAPI:
         wikipedia_service=wikipedia_service,
         sse_formatter_service=sse_formatter_service,
         wikipedia_search_service=wikipedia_search_service,
-        context_builder_service=context_builder_service
+        context_builder_service=context_builder_service,
+        translation_service=translation_service
     )
 
     chat_controller = ChatController(

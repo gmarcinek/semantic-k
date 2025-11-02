@@ -34,7 +34,7 @@ class RerankerService:
         query: str,
         search_results: List[Dict[str, str]],
         top_n: int = 5,
-        model: str = "gpt-4o-mini"
+        model: str = "gpt-4.1-mini"
     ) -> List[RankedResult]:
         if not search_results:
             return []
@@ -77,7 +77,25 @@ class RerankerService:
             if not ranked_results:
                 return []
 
-            # Sort by relevance score (descending) and return top_n without dropping candidates
+            # Filter out low relevance results
+            min_relevance = 0.3
+            filtered_results = [
+                result for result in ranked_results
+                if (result.relevance_score or 0.0) >= min_relevance
+            ]
+
+            if not filtered_results and ranked_results:
+                strongest = max(ranked_results, key=lambda x: x.relevance_score)
+                filtered_results = [strongest]
+
+            plugin_logger.debug(
+                "Filtered reranked results using threshold %.2f (kept %d of %d).",
+                min_relevance,
+                len(filtered_results),
+                len(ranked_results)
+            )
+
+            # Sort by relevance score (descending) and return top_n
             ranked_results.sort(key=lambda x: x.relevance_score, reverse=True)
             top_results = ranked_results[:top_n]
 

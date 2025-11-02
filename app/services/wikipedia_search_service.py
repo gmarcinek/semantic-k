@@ -16,14 +16,16 @@ class WikipediaSearchService:
         wikipedia_service,
         reranker_service,
         config_service,
-        wikipedia_intent_service=None
+        wikipedia_intent_service=None,
+        translation_service=None
     ):
         # Initialize the coordinator service
         self.coordinator = WikipediaSearchCoordinatorService(
             wikipedia_service=wikipedia_service,
             reranker_service=reranker_service,
             config_service=config_service,
-            wikipedia_intent_service=wikipedia_intent_service
+            wikipedia_intent_service=wikipedia_intent_service,
+            translation_service=translation_service
         )
 
         # Expose underlying services for compatibility
@@ -31,6 +33,7 @@ class WikipediaSearchService:
         self.reranker_service = reranker_service
         self.config_service = config_service
         self.wikipedia_intent_service = wikipedia_intent_service
+        self.translation_service = translation_service
 
         # Expose coordinator properties
         self.primary_language = self.coordinator.primary_language

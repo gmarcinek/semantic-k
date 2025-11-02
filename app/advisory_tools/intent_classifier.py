@@ -47,7 +47,7 @@ class IntentClassifier(BaseAdvisoryTool):
         if chat_history:
             recent = chat_history[-3:]
             context_lines = [
-                f"{m.get('role')}: {str(m.get('content',''))[:120]}" for m in recent
+                f"{m.get('role')}: {str(m.get('content',''))[:240]}" for m in recent
             ]
             analysis += "\n\nRecent conversation context:\n" + "\n".join(context_lines)
 

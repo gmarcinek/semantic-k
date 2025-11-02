@@ -85,8 +85,12 @@ wikipedia:
   # Wikipedia language
   language: "pl"
   fallback_languages:
+    - "simple"
     - "en"
+    - "uk"
+    - "ru"
     - "de"
+    - "tr"
     - "es"
     - "fr"
 
@@ -106,7 +110,7 @@ wikipedia:
   reranking:
     enabled: true
     model: "gpt-4.1-mini"  # Model to use for reranking
-    top_n: 10  # Number of top results to return after reranking
+    top_n: 5  # Number of top results to return after reranking
 
   # Relevance thresholds (tunable)
   thresholds:
@@ -118,6 +122,12 @@ wikipedia:
   intent_resolution:
     model: "gpt-4.1-mini"
     temperature: 0.0
+
+# Translation configuration
+translation:
+  model: "gpt-4.1-mini"
+  max_chars: 1600
+  temperature: 0.1
 
 # ============================================================================
 # ROUTING STRATEGIES - Topic to System Prompt Mapping
